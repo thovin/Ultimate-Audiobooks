@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<package xmlns="http://www.idpf.org/2007/opf" version="3.2" unique-identifier="BookID" xml:lang="en">
+    
+    <metadata xmlns:dc='http://purl.org/dc/elements/1.1/'>
+        <dc:title>__TITLE__</dc:title>
+        <dc:subtitle>__SUBTITLE__</dc:subtitle>
+        <dc:creator opf:role="aut">__AUTHOR__</dc:creator>
+        <dc:creator opf:role="nrt">__NARRATOR__</dc:creator>
+        <dc:publisher>__PUBLISHER__</dc:publisher>
+        <dc:date>__PUBLISHYEAR__</dc:date>
+        <dc:language>eng</dc:language>
+        <dc:subject>__GENRES__</dc:subject>
+        <dc:identifier opf:scheme="ISBN">__ISBN__</dc:identifier>
+        <dc:identifier opf:scheme="ASIN">__ASIN__</dc:identifier>
+        <dc:description>__DESCRIPTION__</dc:description>
+        <meta name="calibre:series" content="__SERIES__" />
+        <meta name="calibre:series_index" content="__VOLUMENUMBER__" />
+    </metadata>
+
+</package>
