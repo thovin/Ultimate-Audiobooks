@@ -18,7 +18,7 @@ class Settings:
         # setattr(self, "recurseCombine", False) 
         # # setattr(self, "save", False) 
 
-        #TODO load. make sure load and args in don't overwrite.
+        #TODO load. make sure load and args in don't overwrite. if -D, skip load.
 
         for arg, value in vars(args).items():
             setattr(self, arg, value)
