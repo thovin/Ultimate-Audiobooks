@@ -36,7 +36,7 @@ class Settings:
     def save(): #TODO having the method and parameter with the same name may cause issues
         return
     
-    
+settings = None
 
 def create(args):
     global settings
