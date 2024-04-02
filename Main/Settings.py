@@ -23,14 +23,17 @@ class Settings:
         for arg, value in vars(args).items():
             setattr(self, arg, value)
 
+        if not self.output: #TODO fix
+            self.output = self.input + "/Ultimate Output"
+
+
         if self.save:
             self.save()
-        # return self
 
     def load():
         return
 
-    def save():
+    def save(): #TODO having the method and parameter with the same name may cause issues
         return
     
     
