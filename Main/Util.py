@@ -4,32 +4,30 @@ from itertools import islice
 import mutagen
 from mutagen import id3, easyid3, mp3, mp4
 import webbrowser
-import pyperclip
 import time
 import requests
 from bs4 import BeautifulSoup
 
-class Metadata{
-    author = ""
-    authors = []
-    title = ""
-    summary = ""
-    subtitle = ""
-    narrator = ""
-    narrators = []
-    publisher = ""
-    publishYear = ""
-    genres = []
-    isbn = ""
-    asin = ""
-    series = ""
-    seriesMulti = []
-    volumeNumber = ""   #TODO rename?
-    skip = False
-    failed = False
-    inFolder = None
-    inFile = None
-}
+class Metadata:
+    def __init__(self):
+        author = ""
+        authors = []
+        title = ""
+        summary = ""
+        subtitle = ""
+        narrator = ""
+        narrators = []
+        publisher = ""
+        publishYear = ""
+        genres = []
+        isbn = ""
+        asin = ""
+        series = ""
+        seriesMulti = []
+        volumeNumber = ""   #TODO rename?
+        skip = False
+        failed = False
+
 
 def GETpage(url, md):
     #md is passed by reference, so no need to return
@@ -152,25 +150,26 @@ def parseAudibleMd(info, md):
 def parseGoodreadsMd(soup, md):
 
     try:
-        md.title = soup.find('h1', class="Text Text__title1").text.strip()
+        md.title = soup.find('h1', class_="Text Text__title1").text.strip()
     except Exception as e:
         #TODO ERROR
         pass
 
     try:
-        md.author = soup.find('span', class="ContributorLink__name").text.strip()
+        md.author = soup.find('span', class_="ContributorLink__name").text.strip()
     except Exception as e:
         #TODO ERROR
         pass
 
     try:    #TODO author multi
-        md. = soup.find('a', ).text.strip()
+        # md. = soup.find('a', ).text.strip()
+        pass
     except Exception as e:
         #TODO ERROR
         pass
 
     try:    #if multiple classes, use wrapper div instead
-        md.summary = soup.find('span', class="Formatted").text.strip()
+        md.summary = soup.find('span', class_="Formatted").text.strip()
     except Exception as e:
         #TODO ERROR
         pass

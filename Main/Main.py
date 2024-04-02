@@ -5,6 +5,8 @@ from FileManagement import *
 
 
 def __main__():
+    processArgs()
+    processBooks()
 
 
 
@@ -48,4 +50,5 @@ def processArgs(parser):
     parser.add_argument("-RP", "--recursePreserve", default=False) #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
     parser.add_argument("-S", "--save", default=False) #save settings for future excecutions
 
-    Settings.create()   #TODO pass args
+    args = parser.parse_args()
+    Settings.create(args)
