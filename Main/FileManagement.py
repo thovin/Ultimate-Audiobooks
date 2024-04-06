@@ -8,11 +8,11 @@ import xml.etree.ElementTree as ET
 import subprocess
 import os
 import shutil
+import logging
 
 
 
-
-
+log = logging.getLogger(__name__)
 
 def combine(folder):
     return
@@ -20,6 +20,7 @@ def combine(folder):
 
 
 def convertToM4B(file, type):
+    log.INFO("converting " + file + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec:a', 'aac', #codec, audio
@@ -29,6 +30,7 @@ def convertToM4B(file, type):
            file.name]    #output file. do I have to cast to Path first?
     
     if type == '.mp3':
+        log.debug("Converting MP3 to M4B")
         try:
             subprocess.run(cmd, check=True)
             newFile = file.with_suffix('.m4b')
@@ -38,13 +40,16 @@ def convertToM4B(file, type):
             pass    #ERROR
 
     elif type == '.mp4':
+        log.debug("Converting MP4 to M4B")
         newName = file.with_suffix('.m4b')
         file.rename(newName)
 
 
 
 def cleanMetadata(file, type, md):
+    log.info("Cleaning file metadata")
     if type == '.mp3':
+        log.debug("cleaning mp3 metadata")
         data = mutagen.ID3(file)    #can put in try-except if needed
 
         data.delete()
@@ -74,6 +79,7 @@ def cleanMetadata(file, type, md):
         # trackhow
 
     elif type == '.mp4' or type == '.m4b':  #TODO are the custom fields the best way to do it?
+        log.debug("cleaning mp4/M4B metadata")
         track = mutagen.MP4(file)
 
         track['\xa9nam'] = md.title
@@ -90,11 +96,13 @@ def cleanMetadata(file, type, md):
     else:   #ERROR
         return
 
+    log.debug("Saving audio track with new metadata")
     track.save()
 
 
 
 def createOpf(md):
+    log.info("Creating OPF")
     dcLink = "{http://purl.org/dc/elements/1.1/}"
     package = ET.Element("package", version="3.0", xmlns="http://www.idpf.org/2007/opf", unique_identifier="BookId")
     metadata = ET.SubElement(package, "metadata", nsmap={'dc' : dcLink})
@@ -136,10 +144,12 @@ def createOpf(md):
 
     tree = ET.ElementTree(package)
     with open ("metadata.opf", "wb") as outFile:
+        log.debug("Write OPF file")
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
 
 
 def singleLevelBatch():
+    log.info("Begin single level batch processing")
     infolder = Path(settings.input)
     files = list(islice(infolder.glob("*.m4*"), settings.batch))    #.m4a, .m4b
 
@@ -172,10 +182,13 @@ def singleLevelBatch():
             #TODO
             pass
 
+#TODO move opf
         if settings.move:
+            log.info("Moving " + file.name + " to " + settings.output)
             # file.rename(settings.output + file.name)
             shutil.move(file, settings.output + file.name)
         else:
+            log.info("Copying " + file.name + " to " + settings.output)
             shutil.copy(file, settings.output + file.name)
             
 

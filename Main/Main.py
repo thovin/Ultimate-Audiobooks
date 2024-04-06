@@ -2,9 +2,21 @@ import argparse
 # from Settings import settings
 import Settings
 from FileManagement import *
+import logging as log
+
+'''
+DEBUG
+INFO
+WARNING
+ERROR
+CRITICAL
+'''
 
 
 def __main__():
+    #TODO change level before release
+    log.basicConfig(level=log.DEBUG, format = "%(asctime)s%(levelname)s: %(message)s", datefmt='%H:%M:%S')
+
     processArgs()
     processBooks()
 
@@ -14,6 +26,7 @@ def __main__():
 def processBooks():
 
     if (settings.recurseFetch and settings.recurseCombine) or (settings.recurseFetch and settings.recursePreserve) or (settings.recurseCombine and settings.recursePreserve):
+        log.critical("Incompatible processing modes selected. Enable only one processing mode. Exiting...")
         #TODO ERROR
         pass
 
@@ -32,6 +45,7 @@ def processBooks():
 
 
 def processArgs(parser):
+    log.info("Parsing arguments")
     parser = argparse.ArgumentParser(prog = "Ultimate Audiobooks")
     parser.add_argument("-B", "--batch", default = 10) #batch size
     parser.add_argument("-CL", "--clean", default = False) #overwrite audio file metadata
@@ -51,4 +65,5 @@ def processArgs(parser):
     parser.add_argument("-S", "--save", default=False) #save settings for future excecutions
 
     args = parser.parse_args()
+    log.info("Arguments parsed successfully")
     Settings.create(args)

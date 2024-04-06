@@ -1,7 +1,12 @@
 import json
+import logging
+
+
+log = logging.getLogger(__name__)
 
 class Settings:
     def __init__(self, args):
+        log.info("Parsing settings")
         #Moved to main.processArgs
         # setattr(self, "batch", args.batch) 
         # setattr(self, "convert", args.convert) 
@@ -30,6 +35,8 @@ class Settings:
         if self.save:
             self.save()
 
+        log.INFO("Settings parsed")
+
     def load():
         return
 
@@ -39,5 +46,6 @@ class Settings:
 settings = None
 
 def create(args):
+    log.info("Creating settings")   #Keep pseudo-dupe log?
     global settings
     settings = Settings(args)
