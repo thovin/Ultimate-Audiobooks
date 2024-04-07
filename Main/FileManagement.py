@@ -1,4 +1,4 @@
-from Settings import settings
+from Settings import getSettings
 from pathlib import Path
 from itertools import islice
 import mutagen
@@ -10,13 +10,16 @@ import os
 import shutil
 import logging
 
-
-
 log = logging.getLogger(__name__)
+settings = None
+
+def loadSettings():
+    global settings
+    settings = getSettings()
+
 
 def combine(folder):
     return
-
 
 
 def convertToM4B(file, type):
@@ -150,11 +153,13 @@ def createOpf(md):
 
 def singleLevelBatch():
     log.info("Begin single level batch processing")
-    infolder = Path(settings.input)
+    infolder = Path(settings.input).parent
     files = list(islice(infolder.glob("*.m4*"), settings.batch))    #.m4a, .m4b
 
     if len(files) < settings.batch:
-        files.append(list(islice(infolder.glob("*.mp*"), settings.batch - len(files)))) #.mp3, .mp4
+        for file in list(islice(infolder.glob("*.mp*"), settings.batch - len(files))):
+            files.append(file)
+        # files.append() #.mp3, .mp4
 
     # if len(files) < settings.batch:
     #     files.append(list(islice(infolder.glob("*.flac"), settings.batch - len(files))))
@@ -186,10 +191,10 @@ def singleLevelBatch():
         if settings.move:
             log.info("Moving " + file.name + " to " + settings.output)
             # file.rename(settings.output + file.name)
-            shutil.move(file, settings.output + file.name)
+            shutil.move(file, settings.output)
         else:
             log.info("Copying " + file.name + " to " + settings.output)
-            shutil.copy(file, settings.output + file.name)
+            shutil.copy(file, settings.output)
             
 
 def recursivelyFetchBatch():

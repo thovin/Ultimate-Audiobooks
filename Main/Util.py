@@ -1,4 +1,4 @@
-from Settings import settings
+from Settings import getSettings
 from pathlib import Path
 from itertools import islice
 import mutagen
@@ -10,7 +10,11 @@ from bs4 import BeautifulSoup
 import logging
 
 log = logging.getLogger(__name__)
+settings = None
 
+def loadSettings():
+    global settings
+    settings = getSettings()
 
 class Metadata:
     def __init__(self):

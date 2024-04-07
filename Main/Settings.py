@@ -1,8 +1,10 @@
 import json
 import logging
-
+from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+settings = None
 
 class Settings:
     def __init__(self, args):
@@ -29,13 +31,15 @@ class Settings:
             setattr(self, arg, value)
 
         if not self.output: #TODO fix
-            self.output = self.input + "/Ultimate Output"
+            outPath = str(Path(self.input).parent / "Ultimate Output")
+            self.output = outPath
+            log.debug("Output path defaulting to: " + outPath)
 
 
         if self.save:
             self.save()
 
-        log.INFO("Settings parsed")
+        log.info("Settings parsed")
 
     def load():
         return
@@ -43,9 +47,9 @@ class Settings:
     def save(): #TODO having the method and parameter with the same name may cause issues
         return
     
-settings = None
-
-def create(args):
-    log.info("Creating settings")   #Keep pseudo-dupe log?
+def setSettings(s):
     global settings
-    settings = Settings(args)
+    settings = s
+
+def getSettings():
+    return settings
