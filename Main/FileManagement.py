@@ -23,7 +23,7 @@ def combine(folder):
 
 
 def convertToM4B(file, type):
-    log.INFO("converting " + file + " to M4B")
+    log.info("converting " + file + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec:a', 'aac', #codec, audio
@@ -49,7 +49,7 @@ def convertToM4B(file, type):
 
 
 
-def cleanMetadata(file, type, md):
+def cleanMetadata(file, type, md):  #TODO rework to take advantage of mutagen's easyMP3/4 tagging #TODO in easyid3/4 all tags are stored as lists
     log.info("Cleaning file metadata")
     if type == '.mp3':
         log.debug("cleaning mp3 metadata")
@@ -195,6 +195,8 @@ def singleLevelBatch():
         else:
             log.info("Copying " + file.name + " to " + settings.output)
             shutil.copy(file, settings.output)
+
+    log.info["Batch completed. Enjoy your audiobooks!"] #TODO extra end processing for failed books and such?
             
 
 def recursivelyFetchBatch():

@@ -61,14 +61,14 @@ def processBooks():
 #     log.info("Parsing arguments")
 #     parser = argparse.ArgumentParser(prog = "Ultimate Audiobooks")
 #     parser.add_argument("-B", "--batch", default = 10) #batch size
-#     parser.add_argument("-CL", "--clean", default = False) #overwrite audio file metadata
-#     parser.add_argument("-CV", "--convert", default = False) #convert to .m4b
+#     parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
+#     parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
 #     parser.add_argument("-CR", "--create", default = None, choices = ["Infotext", "OPD"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
 #     parser.add_argument("-D", "--default", default=False) #Reset saved settings to default
 #     parser.add_argument("-FO", "--force", False) #When used with --create, this overwrites existing metadata files
 #     parser.add_argument("-FM", "--fetch", default=None, choices = ["Audible", "Goodreads", "Both"]) #interactively fetch metadata from the web
 #     parser.add_argument("-I", "--input", required = True) #input folder
-#     parser.add_argument("-M", "--move", default = False) #move files to output (copies by default)
+#     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
 #     parser.add_argument("-O", "--output", default=None) #output folder. Will default to a named sub of input, set in setter method
 #     parser.add_argument("-Q", "--quick", default=False) #skip confirmation of settings
 #     # parser.add_argument("-RN", "--rename", default=None) #rename files
@@ -88,22 +88,22 @@ def processBooks():
 if __name__ == "__main__":
     log.info("Parsing arguments")
     parser = argparse.ArgumentParser(prog = "Ultimate Audiobooks")
-    parser.add_argument("-B", "--batch", default = 10) #batch size
-    parser.add_argument("-CL", "--clean", default = False) #overwrite audio file metadata
-    parser.add_argument("-CV", "--convert", default = False) #convert to .m4b
-    parser.add_argument("-CR", "--create", default = None, choices = ["Infotext", "OPD"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
-    parser.add_argument("-D", "--default", default=False) #Reset saved settings to default
-    parser.add_argument("-FO", "--force", default = False) #When used with --create, this overwrites existing metadata files
-    parser.add_argument("-FM", "--fetch", default = None, choices = ["Audible", "Goodreads", "Both"]) #interactively fetch metadata from the web
+    parser.add_argument("-B", "--batch", type=int, default = 10) #batch size
+    parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
+    parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
+    parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPD"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
+    parser.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default
+    parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
+    parser.add_argument("-FM", "--fetch", default = None, type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
     parser.add_argument("-I", "--input", required = True) #input folder
-    parser.add_argument("-M", "--move", default = False) #move files to output (copies by default)
+    parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
-    parser.add_argument("-Q", "--quick", default = False) #skip confirmation of settings
+    parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
     parser.add_argument("-RN", "--rename", default = None) #rename files #TODO
-    parser.add_argument("-RF", "--recurseFetch", default = False) #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
-    parser.add_argument("-RC", "--recurseCombine", default = False) #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
-    parser.add_argument("-RP", "--recursePreserve", default = False) #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
-    parser.add_argument("-S", "--save", default = False) #save settings for future excecutions
+    parser.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
+    parser.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
+    parser.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
+    parser.add_argument("-S", "--save", action = "store_true") #save settings for future excecutions
 
     args = parser.parse_args()
     log.debug("Arguments parsed successfully")
