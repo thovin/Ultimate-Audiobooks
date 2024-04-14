@@ -51,14 +51,22 @@ def getTitle(track):
         else:
             return False
     elif isinstance(track, easymp4.EasyMP4):
-        if track['title'] != "":
-            return track['title'][0]
-        elif track['album'] != "":
-            return track['album'][0]
-        else:
+        try:
+            if track['title'] != "":
+                return track['title'][0]
+        except KeyError:
+            pass
+
+        try:
+            if track['album'] != "":
+                return track['album'][0]
+            else:
+                return ""
+        except KeyError:
             return ""
     else:
         log.error("track is not easyMP3 or 4, unable to get title")
+        return ""
 
 
 def getAuthor(track):
@@ -67,31 +75,60 @@ def getAuthor(track):
     #TODO what happens if they're not easy?
 
     if isinstance(track, easyid3.EasyID3):
-        if track['artist'] != "":
-            return track['artist'][0]
-        elif track['writer'] != "":
-            return track['writer'][0]
-        elif track['composer'] != "":
-            return track['composer'][0]
-        elif track['albumartist'] != "":
-            return track['album artist'][0]
-        elif track['lyricist'] != "":
-            return track['lyricist'][0]
-        else:
-            return False
-    elif isinstance(track, easymp4.EasyMP4):
-        if track['artist'] != "":
-            return track['artist'][0]
-        elif track['writer'] != "":
-            return track['writer'][0]
-        elif track['composer'] != "":
-            return track['composer'][0]
-        elif track['albumartist'] != "":
-            return track['album artist'][0]
-        else:
+        try:
+            if track['artist'] != "":
+                return track['artist'][0]
+        except KeyError:
+            pass
+        try:
+            if track['writer'] != "":
+                return track['writer'][0]
+        except KeyError:
+            pass
+        try:
+            if track['composer'] != "":
+                return track['composer'][0]
+        except KeyError:
+            pass
+        try:
+            if track['albumartist'] != "":
+                return track['album artist'][0]
+        except KeyError:
+            pass
+        try:
+            if track['lyricist'] != "":
+                return track['lyricist'][0]
+        except KeyError:
             return ""
+            
+
+    elif isinstance(track, easymp4.EasyMP4):
+        try:
+            if track['artist'] != "":
+                return track['artist'][0]
+        except KeyError:
+            pass
+        try:
+            if track['writer'] != "":
+                return track['writer'][0]
+        except KeyError:
+            pass
+        try:
+            if track['composer'] != "":
+                return track['composer'][0]
+        except KeyError:
+            pass
+        try:
+            if track['albumartist'] != "":
+                return track['album artist'][0]
+        except KeyError:
+            return ""
+
     else:
-        log.error("track is not easyMP3 or 4, unable to get title")
+        log.error("track is not easyMP3 or 4, unable to get author")
+        return ""
+    
+    return ""
 
 
 def GETpage(url, md):
@@ -255,32 +292,54 @@ def parseGoodreadsMd(soup, md):
         log.debug("Exeption parsing summary from goodreads")
 
 
-    try:    #TODO
-        md.publisher = soup.find().text.strip()
-    except Exception as e:
-        log.debug("Exeption parsing publisher from goodreads")
+    # try:
+    #     # temp = soup.find('div', class_="TruncatedContent__text TruncatedContent__text--small").text.strip()
+    #     # byIndex = temp.find(" by ")
+    #     # md.publisher = temp[byIndex + 4 :]
+
+    #     temp = soup.find("dt", text="Published").find_sibling("div", attrs={"data-testid" : 'contentContainer'})
+    #     pass
+    # except Exception as e:
+    #     log.debug("Exeption parsing publisher from goodreads")
 
 
-    try:    #TODO
-        md.publishYear = soup.find().text.strip()
-    except Exception as e:
-        log.debug("Exeption parsing release year from goodreads")
+    # try:
+    #     temp = soup.find('div', class_="TruncatedContent__text TruncatedContent__text--small").text.strip()
+    #     byIndex = temp.find(" by ")
+    #     md.publishYear = temp[byIndex - 4 : byIndex]
+    # except Exception as e:
+    #     log.debug("Exeption parsing release year from goodreads")
 
 
-    try:    #TODO
-        md.genres = soup.find().text.strip()
-    except Exception as e:
-        log.debug("Exeption parsing genre from goodreads")
+    # try:    #TODO
+    #     md.genres = soup.find().text.strip()
+    # except Exception as e:
+    #     log.debug("Exeption parsing genre from goodreads")
 
 
-    try:    #TODO
-        md.series = soup.find().text.strip()
+    # try:
+    #     temp = soup.find('h3', class_="Text Text__title3 Text__italic Text__regular Text__subdued").text.strip()
+    #     md.series = temp[ : temp.find('#')]
+    # except Exception as e:
+    #     log.debug("Exeption parsing series from goodreads")
+        
+    try:
+        temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
+        md.series = temp[ : temp.find('#') - 1]
     except Exception as e:
         log.debug("Exeption parsing series from goodreads")
 
 
+    # try:    #TODO
+    #     temp = soup.find('h3', class_="Text Text__title3 Text__italic Text__regular Text__subdued").text.strip()
+    #     md.volumeNumber = temp[ : temp.find('#')]
+    # except Exception as e:
+    #     log.debug("Exeption parsing volume number from goodreads")
+
     try:    #TODO
-        md.volumeNumber = soup.find().text.strip()
+        temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
+        md.volumeNumber = temp[temp.find('#') + 1: ]
+        pass
     except Exception as e:
         log.debug("Exeption parsing volume number from goodreads")
 

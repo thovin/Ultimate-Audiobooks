@@ -2,7 +2,6 @@ from Settings import getSettings
 from pathlib import Path
 from itertools import islice
 import mutagen
-#from mutagen import id3, easyid3, mp3, mp4
 from Util import *
 import xml.etree.ElementTree as ET
 import subprocess
@@ -23,14 +22,16 @@ def combine(folder):
 
 
 def convertToM4B(file, type):
-    log.info("converting " + file + " to M4B")
+    log.info("converting " + file.name + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec:a', 'aac', #codec, audio
            '-b:a', '64k', #bitrate, audio
            '-vn',   #disable video
            '-f', 'mp4', #force output format
-           file.name]    #output file. do I have to cast to Path first?
+           '-y', #yes, overwrite existing file (due to same name)
+           file.with_suffix('.m4b')]    #output file
+    
     
     if type == '.mp3':
         log.debug("Converting MP3 to M4B")
@@ -38,7 +39,8 @@ def convertToM4B(file, type):
             subprocess.run(cmd, check=True)
             newFile = file.with_suffix('.m4b')
             file.unlink()   #delete original file
-            file = newFile
+            return newFile
+            #TODO clean new file to populate fetched metadata. Or move higher in processing.
         except subprocess.CalledProcessError as e:
             pass    #ERROR
 
@@ -83,24 +85,25 @@ def cleanMetadata(file, type, md):  #TODO rework to take advantage of mutagen's 
 
     elif type == '.mp4' or type == '.m4b':  #TODO are the custom fields the best way to do it?
         log.debug("cleaning mp4/M4B metadata")
-        track = mutagen.MP4(file)
+        track = mutagen.mp4.MP4(file)
 
         track['\xa9nam'] = md.title
         # track['\xa9gen'] = md.genres[0]
         track['\xa9day'] = md.publishYear
-        track['trkn'] = md.volumeNumber
+        track['trkn'] = [(int(md.volumeNumber), 0)]
         track['\xa9aut'] = md.author
         track['\xa9des'] = md.summary
         track['\xa9nrt'] = md.narrator
-        track['----:com.thovin.isbn'] = md.isbn
-        track['----:com.thovin.asin'] = md.asin
-        track['----:com.thovin.series'] = md.series
+        track['----:com.thovin:isbn'] = mutagen.mp4.MP4FreeForm(md.isbn.encode('utf-8'))
+        track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
+        track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
 
     else:   #ERROR
         return
 
     log.debug("Saving audio track with new metadata")
     track.save()
+    pass
 
 
 
@@ -146,7 +149,7 @@ def createOpf(md):
 
 
     tree = ET.ElementTree(package)
-    with open ("metadata.opf", "wb") as outFile:
+    with open (settings.output + "/metadata.opf", "wb") as outFile:
         log.debug("Write OPF file")
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
 
@@ -177,17 +180,19 @@ def singleLevelBatch():
             if settings.create:
                 opf = createOpf(md)
 
-            if settings.clean and not settings.convert:
+            if settings.clean and (not settings.convert or type == '.m4b'):
+                #TODO if copy, only clean copy?
                 cleanMetadata(file, type, md)
 
         if settings.convert and type != '.m4b':
+            #TODO converting takes forever. batch and do them at the end? that kinda breaks my mold here.
             file = convertToM4B(file, type)
 
         if settings.rename:
             #TODO
             pass
 
-#TODO move opf
+        #TODO individual output paths
         if settings.move:
             log.info("Moving " + file.name + " to " + settings.output)
             # file.rename(settings.output + file.name)
@@ -196,7 +201,7 @@ def singleLevelBatch():
             log.info("Copying " + file.name + " to " + settings.output)
             shutil.copy(file, settings.output)
 
-    log.info["Batch completed. Enjoy your audiobooks!"] #TODO extra end processing for failed books and such?
+    log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
             
 
 def recursivelyFetchBatch():
