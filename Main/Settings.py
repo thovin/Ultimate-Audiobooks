@@ -29,9 +29,9 @@ class Settings:
 
         
 
-        log.info("Settings parsed")
+        log.debug("Settings parsed")
 
-    def load():
+    def load(self):
         log.debug("Loading settings")
         with open ('settings.json', 'r') as inFile:
             settingsMap = json.load(inFile)
@@ -39,25 +39,25 @@ class Settings:
         setSettings(Settings(**settingsMap))
 
 
-    def save(): 
+    def save(self): 
         log.debug("Saving settings")
-        settingsMap = settings.__dict__
+        settingsMap = self.__dict__
         settingsJSON = json.dumps(settingsMap)
 
         with open ('settings.json', 'w') as outFile:
             outFile.write(settingsJSON)
 
-    def confirm():
+    def confirm(self):
         log.debug("Confirming settings")
-        for key, value in settings.__dict__.items():
+        for key, value in self.__dict__.items():
             print(f"{key}: {value}")
 
         while True:
-            input = input("Continue program execution? (y/n): ").lower
+            userInput = input("Continue program execution? (y/n): ").lower()
 
-            if input == 'y':
+            if userInput == 'y':
                 break
-            elif input == 'n':
+            elif userInput == 'n':
                 print("Confirmed, exiting...")
                 log.info("User has selected no when confirming settings. Exiting...")
                 sys.exit()

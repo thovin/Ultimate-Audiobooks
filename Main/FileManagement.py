@@ -9,8 +9,17 @@ import os
 import shutil
 import logging
 
+class Conversion:
+    def __init__(self, file, track, type, md):
+        self.file = file
+        self.track = track
+        self.type = type
+        self.md = md
+        
+
 log = logging.getLogger(__name__)
 settings = None
+conversions = []
 
 def loadSettings():
     global settings
@@ -21,7 +30,7 @@ def combine(folder):
     return
 
 
-def convertToM4B(file, type):
+def convertToM4B(file, type, md):
     log.info("converting " + file.name + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
@@ -40,53 +49,78 @@ def convertToM4B(file, type):
             newFile = file.with_suffix('.m4b')
             file.unlink()   #delete original file
             return newFile
-            #TODO clean new file to populate fetched metadata. Or move higher in processing.
         except subprocess.CalledProcessError as e:
-            pass    #ERROR
+            log.error(f"Conversion failed! Aborting file...")
+            md.failed = True
+            return file
 
     elif type == '.mp4':
         log.debug("Converting MP4 to M4B")
         newName = file.with_suffix('.m4b')
         file.rename(newName)
 
-
-
-def cleanMetadata(file, type, md):  #TODO rework to take advantage of mutagen's easyMP3/4 tagging #TODO in easyid3/4 all tags are stored as lists
+def cleanMetadata(track, md):
     log.info("Cleaning file metadata")
-    if type == '.mp3':
+    if isinstance(track, mp3.EasyMP3):
+        log.debug("cleaning easymp3 metadata")
+
+        #TODO genres
+        track.delete()
+        track['title'] = md.title
+        track['artist'] = md.narrator
+        track['album'] = md.series
+        track['date'] = md.publishYear
+        track['discNumber'] = md.volumeNumber
+        track['author'] = md.author
+        track['asin'] = md.asin
+        track.ID3.RegisterTXXXKey('description', md.summary)
+        track.ID3.RegisterTXXXKey('subtitle', md.subtitle)
+        track.ID3.RegisterTXXXKey('isbn', md.isbn)
+        track.ID3.RegisterTXXXKey('publisher', md.publisher)
+
+    elif isinstance(track, easymp4.EasyMP4):
+        log.debug("cleaning easymp4 metadata")
+        track.RegisterTextKey('narrator', '@nrt')
+        track.RegisterTextKey('author', '@aut')
+        track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
+        track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
+        track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
+        track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
+
+        #TODO genres
+        track.delete()
+        track['title'] = md.title
+        track['narrator'] = md.narrator
+        track['date'] = md.publishYear
+        track['description'] = md.summary
+        track['discNumber'] = md.volumeNumber
+        track['author'] = md.author
+        track['publisher'] = md.publisher
+        track['isbn'] = md.isbn
+        track['asin'] = md.asin
+        track['series'] = md.series
+
+    elif isinstance(track, mp3.MP3):
         log.debug("cleaning mp3 metadata")
-        data = mutagen.ID3(file)    #can put in try-except if needed
 
-        data.delete()
-        data.add(mutagen.TIT2(encoding = 3, text = md.title))
-        data.add(mutagen.TPE1(encoding = 3, text = md.narrator))
-        data.add(mutagen.TALB(encoding = 3, text = md.series))
-        data.add(mutagen.TYER(encoding = 3, text = md.publishYear))
-        data.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
-        data.add(mutagen.TCOM(encoding = 3, text = md.author))
-        # data.add(mutagen.TCON(encoding = 3, text = md.md.genres[0]))  #can list multiples by separating with /, //, or ;
-        data.add(mutagen.TPUB(encoding = 3, text = md.publisher))
-        data.add(mutagen.TXXX(encoding = 3, desc='description', text = md.summary))
-        data.add(mutagen.TXXX(encoding = 3, desc='subtitle', text = md.subtitle))
-        data.add(mutagen.TXXX(encoding = 3, desc='isbn', text = md.isbn))
-        data.add(mutagen.TXXX(encoding = 3, desc='asin', text = md.asin))
-        data.add(mutagen.TXXX(encoding = 3, desc='publisher', text = md.publisher))
+        track.delete()
+        track.add(mutagen.TIT2(encoding = 3, text = md.title))
+        track.add(mutagen.TPE1(encoding = 3, text = md.narrator))
+        track.add(mutagen.TALB(encoding = 3, text = md.series))
+        track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
+        track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
+        track.add(mutagen.TCOM(encoding = 3, text = md.author))
+        # track.add(mutagen.TCON(encoding = 3, text = md.md.genres[0]))  #can list multiples by separating with /, //, or ;
+        track.add(mutagen.TPUB(encoding = 3, text = md.publisher))
+        track.add(mutagen.TXXX(encoding = 3, desc='description', text = md.summary))
+        track.add(mutagen.TXXX(encoding = 3, desc='subtitle', text = md.subtitle))
+        track.add(mutagen.TXXX(encoding = 3, desc='isbn', text = md.isbn))
+        track.add(mutagen.TXXX(encoding = 3, desc='asin', text = md.asin))
+        track.add(mutagen.TXXX(encoding = 3, desc='publisher', text = md.publisher))
 
-
-        # track["TIT2"] = mutagen.TIT2(encoding = 3, text = md.title)
-        # track["TPE1"] = mutagen.TPE1(encoding = 3, text = md.narrator)
-        # track["TALB"] = mutagen.TALB(encoding = 3, text = md.series)
-        # track["TYER"] = mutagen.TYER(encoding = 3, text = md.publishYear)
-        # track["TPOS"] = mutagen.TPOS(encoding = 3, text = md.volumeNumber)
-        # track["TCOM"] = mutagen.TCOM(encoding = 3, text = md.author)
-        # # track["TCON"] = mutagen.TCON(encoding = 3, text = md.genres[0])
-        # track["TPUB"] = mutagen.TPUB(encoding = 3, text = md.publisher)
-        # trackhow
-
-    elif type == '.mp4' or type == '.m4b':  #TODO are the custom fields the best way to do it?
-        log.debug("cleaning mp4/M4B metadata")
-        track = mutagen.mp4.MP4(file)
-
+    elif isinstance(track, mp4.MP4):
+        log.debug("cleaning mp4/m4b metadata")
+        
         track['\xa9nam'] = md.title
         # track['\xa9gen'] = md.genres[0]
         track['\xa9day'] = md.publishYear
@@ -98,12 +132,12 @@ def cleanMetadata(file, type, md):  #TODO rework to take advantage of mutagen's 
         track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
         track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
 
-    else:   #ERROR
+    else:
+        log.error("Audio file not detected as MP3, MP4, or M4A/B. Unable to clean metadata.")
         return
 
-    log.debug("Saving audio track with new metadata")
     track.save()
-    pass
+
 
 
 
@@ -149,20 +183,19 @@ def createOpf(md):
 
 
     tree = ET.ElementTree(package)
-    with open (settings.output + "/metadata.opf", "wb") as outFile:
+    with open (settings.output + "/metadata.opf", "wb") as outFile: #TODO this will need to change when I do deeper output paths
         log.debug("Write OPF file")
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
 
 
 def singleLevelBatch():
     log.info("Begin single level batch processing")
-    infolder = Path(settings.input).parent
+    infolder = Path(settings.input)
     files = list(islice(infolder.glob("*.m4*"), settings.batch))    #.m4a, .m4b
 
     if len(files) < settings.batch:
-        for file in list(islice(infolder.glob("*.mp*"), settings.batch - len(files))):
+        for file in list(islice(infolder.glob("*.mp*"), settings.batch - len(files))):  #.mp3, .mp4
             files.append(file)
-        # files.append() #.mp3, .mp4
 
     # if len(files) < settings.batch:
     #     files.append(list(islice(infolder.glob("*.flac"), settings.batch - len(files))))
@@ -171,38 +204,76 @@ def singleLevelBatch():
     #     files.append(list(islice(infolder.glob("*.wma"), settings.batch - len(files))))
 
     for file in files:
-        track = mutagen.File(file, easy=True)
-        type = Path(file).suffix.lower()
-
-        if settings.fetch:
-            #existing OPF is ignored in single level batch
-            md = fetchMetadata(file, track)
-            if settings.create:
-                opf = createOpf(md)
-
-            if settings.clean and (not settings.convert or type == '.m4b'):
-                #TODO if copy, only clean copy?
-                cleanMetadata(file, type, md)
-
-        if settings.convert and type != '.m4b':
-            #TODO converting takes forever. batch and do them at the end? that kinda breaks my mold here.
-            file = convertToM4B(file, type)
-
-        if settings.rename:
-            #TODO
-            pass
-
-        #TODO individual output paths
-        if settings.move:
-            log.info("Moving " + file.name + " to " + settings.output)
-            # file.rename(settings.output + file.name)
-            shutil.move(file, settings.output)
-        else:
-            log.info("Copying " + file.name + " to " + settings.output)
-            shutil.copy(file, settings.output)
+        processFile(file)
+        if len(conversions) > 0:
+            processConversions()
 
     log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
             
+
+def processConversions():
+    for c in conversions:
+        file = c.file
+        type = c.type
+        track = c.track
+        md = c.md
+
+        convertToM4B(file, type, md)
+
+        if settings.fetch and settings.clean and not settings.copy:
+            #if copying, we will only clean the copied file
+            cleanMetadata(track, md)
+        
+        processFileEnding(file, track, md)
+
+        
+
+def processFile(file):
+    log.info(f"Processing {file.name}")
+    track = mutagen.File(file, easy=True)
+    type = Path(file).suffix.lower()
+    md = Metadata   #need parends after metadata for constructor call?
+
+
+    if settings.fetch:
+        #existing OPF is ignored in single level batch
+        md = fetchMetadata(file, track)
+
+        if settings.create:
+            createOpf(md)
+
+        if settings.convert and type != '.m4b':
+            conversions.append(Conversion(file, track, type, md))
+            return
+
+        if settings.clean and not settings.copy:
+            #if copying, we will only clean the copied file
+            cleanMetadata(track, md)
+
+    if settings.convert and type != '.m4b':
+        conversions.append(Conversion(file, track, type, md)) 
+        return
+
+    processFileEnding(file, track, md)
+
+def processFileEnding(file, track, md):
+    if settings.rename:
+        #TODO
+        #again, only apply to copy
+        pass
+
+    #TODO individual output paths
+    #TODO fails and skips - skips up top?
+    if settings.move:
+        log.info("Moving " + file.name + " to " + settings.output)
+        # file.rename(settings.output + file.name)
+        shutil.move(file, settings.output)
+    else:
+        if settings.fetch:
+            cleanMetadata(track, md)
+
+        log.info("Copying " + file.name + " to " + settings.output)
+        shutil.copy(file, settings.output)
 
 def recursivelyFetchBatch():
     return

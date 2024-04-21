@@ -33,7 +33,7 @@ class Metadata:
         self.asin = ""
         self.series = ""
         self.seriesMulti = []
-        self.volumeNumber = ""   #TODO rename?
+        self.volumeNumber = ""
         self.skip = False
         self.failed = False
 
@@ -43,7 +43,7 @@ def getTitle(track):
     # TODO correct syntax?
     #TODO what happens if they're not easy?
 
-    if isinstance(track, easyid3.EasyID3):
+    if isinstance(track, mp3.EasyMP3):
         if track['title'] != "":
             return track['title'][0]
         elif track['album'] != "":
@@ -65,6 +65,7 @@ def getTitle(track):
         except KeyError:
             return ""
     else:
+        #TODO can I extract from regular mp3/4?
         log.error("track is not easyMP3 or 4, unable to get title")
         return ""
 
@@ -74,7 +75,7 @@ def getAuthor(track):
     # TODO correct syntax?
     #TODO what happens if they're not easy?
 
-    if isinstance(track, easyid3.EasyID3):
+    if isinstance(track, mp3.EasyMP3):
         try:
             if track['artist'] != "":
                 return track['artist'][0]
@@ -381,6 +382,7 @@ def fetchMetadata(file, track) -> Metadata:
         log.error("Invalid fetch argument detected")    #TODO how do I handle this fail? Just skip the book? but it woudl apply to all books. so exit program?
 
     tempClipboard = pyperclip.paste()
+    log.info("Waiting for URL")
     while True:
         time.sleep(1)
         currClipboard = pyperclip.paste()
