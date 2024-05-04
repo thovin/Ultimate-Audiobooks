@@ -183,7 +183,7 @@ def createOpf(md):
 
 
     tree = ET.ElementTree(package)
-    with open (settings.output + "/metadata.opf", "wb") as outFile: #TODO this will need to change when I do deeper output paths
+    with open (md.bookPath + "/metadata.opf", "wb") as outFile:
         log.debug("Write OPF file")
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
 
@@ -238,6 +238,8 @@ def processFile(file):
     if settings.fetch:
         #existing OPF is ignored in single level batch
         md = fetchMetadata(file, track)
+        #TODO set md.bookPath according to rename
+        md.bookPath = settings.output + f"\{md.author}\{md.title}"
 
         if settings.create:
             createOpf(md)
@@ -262,18 +264,17 @@ def processFileEnding(file, track, md):
         #again, only apply to copy
         pass
 
-    #TODO individual output paths
     #TODO fails and skips - skips up top?
     if settings.move:
-        log.info("Moving " + file.name + " to " + settings.output)
-        # file.rename(settings.output + file.name)
-        shutil.move(file, settings.output)
+        log.info("Moving " + file.name + " to " + md.bookPath)
+        # file.rename(md.bookPath + file.name)
+        shutil.move(file, md.bookPath)
     else:
         if settings.fetch:
             cleanMetadata(track, md)
 
-        log.info("Copying " + file.name + " to " + settings.output)
-        shutil.copy(file, settings.output)
+        log.info("Copying " + file.name + " to " + md.bookPath)
+        shutil.copy(file, md.bookPath)
 
 def recursivelyFetchBatch():
     return

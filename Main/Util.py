@@ -34,6 +34,7 @@ class Metadata:
         self.series = ""
         self.seriesMulti = []
         self.volumeNumber = ""
+        self.bookPath = ""
         self.skip = False
         self.failed = False
 
