@@ -41,8 +41,6 @@ class Metadata:
 
 def getTitle(track):
     log.debug("Extracting title from track")
-    # TODO correct syntax?
-    #TODO what happens if they're not easy?
 
     if isinstance(track, mp3.EasyMP3):
         if track['title'] != "":
@@ -65,16 +63,32 @@ def getTitle(track):
                 return ""
         except KeyError:
             return ""
+    elif isinstance(track, mp3.MP3):
+        if track['TIT2'] != "":
+            return track['TIT2']
+            # return track['TIT2'][0]
+        elif track['TALB'] != "":
+            return track['TALB']
+            # return track['TALB'][0]
+        else:
+            return False
+    elif isinstance(track, mp4.MP4):
+        if track['\xa9nam'] != "":
+            return track['\xa9nam']
+            # return track['\xa9nam'][0]
+        elif track['\xa9alb'] != "":
+            return track['\xa9alb']
+            # return track['\xa9alb'][0]
+        else:
+            return False
+
     else:
-        #TODO can I extract from regular mp3/4?
-        log.error("track is not easyMP3 or 4, unable to get title")
+        log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get title")
         return ""
 
 
 def getAuthor(track):
     log.debug("Extracting author from track")
-    # TODO correct syntax?
-    #TODO what happens if they're not easy?
 
     if isinstance(track, mp3.EasyMP3):
         try:
@@ -83,18 +97,13 @@ def getAuthor(track):
         except KeyError:
             pass
         try:
-            if track['writer'] != "":
-                return track['writer'][0]
-        except KeyError:
-            pass
-        try:
             if track['composer'] != "":
                 return track['composer'][0]
         except KeyError:
             pass
         try:
             if track['albumartist'] != "":
-                return track['album artist'][0]
+                return track['albumartist'][0]
         except KeyError:
             pass
         try:
@@ -102,7 +111,6 @@ def getAuthor(track):
                 return track['lyricist'][0]
         except KeyError:
             return ""
-            
 
     elif isinstance(track, easymp4.EasyMP4):
         try:
@@ -111,26 +119,46 @@ def getAuthor(track):
         except KeyError:
             pass
         try:
-            if track['writer'] != "":
-                return track['writer'][0]
-        except KeyError:
-            pass
-        try:
             if track['composer'] != "":
                 return track['composer'][0]
         except KeyError:
             pass
         try:
             if track['albumartist'] != "":
-                return track['album artist'][0]
+                return track['albumartist'][0]
         except KeyError:
             return ""
 
+    elif isinstance(track, mp3.MP3): #will this throw errors like the easymp3 solution?
+        if track['TPE1'] != "":
+                return track['TPE1']
+                # return track['TPE1'][0]
+        if track['TCOM'] != "":
+                return track['TCOM']
+                # return track['TCOM'][0]
+        if track['TPE2'] != "":
+                return track['TPE2']
+                # return track['TPE2'][0]
+        if track['TEXT'] != "":
+                return track['TEXT']
+                # return track['TEXT'][0]
+
+    elif isinstance(track, mp4.MP4): #will this throw errors like the easymp4 solution?
+        if track['\xa9ART'] != "":
+                return track['\xa9ART']
+                # return track['\xa9ART'][0]
+        if track['soco'] != "":
+                return track['soco'][0]
+                # return track['soco']
+        if track['aART'] != "":
+                return track['aART']
+                # return track['aART'][0]
+
     else:
-        log.error("track is not easyMP3 or 4, unable to get author")
+        log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get author")
         return ""
     
-    return ""
+
 
 
 def GETpage(url, md):
@@ -357,7 +385,7 @@ def fetchMetadata(file, track) -> Metadata:
     log.info("Fetching metadata")
     md = Metadata()
     md.title = getTitle(track)
-    md.author = getAuthor(track) #TODO 
+    md.author = getAuthor(track)
 
     if md.title != "" and md.author != "":
         searchText = md.title + " - " + md.author
@@ -369,18 +397,16 @@ def fetchMetadata(file, track) -> Metadata:
         searchText = file.name
 
     oldClipboard = pyperclip.paste()
-    # if ["goodreads.com", "audible.com"] in oldClipboard:    #TODO right strings?
     if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
         pyperclip.copy("Ultimate Audiobooks")
 
+    #It's not possible for fetch to be anything other than these, as the argparser would throw an error
     if settings.fetch == "audible":
         webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}", new = 2)
     elif settings.fetch == "goodreads":
         webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}", new=2)
     elif settings.fetch == "both":
         webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}", new=2)
-    else:
-        log.error("Invalid fetch argument detected")    #TODO how do I handle this fail? Just skip the book? but it woudl apply to all books. so exit program?
 
     tempClipboard = pyperclip.paste()
     log.info("Waiting for URL")

@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPD"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
     parser.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default
     parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
-    parser.add_argument("-FM", "--fetch", default = None, type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
+    parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
     parser.add_argument("-I", "--input", required = True) #input folder
     parser.add_argument("-L", "--load", action = "store_true")  #load saved settings
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)

@@ -27,17 +27,18 @@ def loadSettings():
 
 
 def combine(folder):
-    return
+    return  #FileMerger.py
 
 
 def convertToM4B(file, type, md):
     log.info("converting " + file.name + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
-           '-codec:a', 'aac', #codec, audio
-           '-b:a', '64k', #bitrate, audio
+        #    '-codec:a', 'aac', #codec, audio
+        #    '-b:a', '64k', #bitrate, audio
            '-vn',   #disable video
            '-f', 'mp4', #force output format
+           '-threads', '1',    #TODO remove or rework before release
            '-y', #yes, overwrite existing file (due to same name)
            file.with_suffix('.m4b')]    #output file
     
@@ -212,6 +213,8 @@ def singleLevelBatch():
             
 
 def processConversions():
+    #TODO explore converting in parallel?
+    log.info("Processing conversions")
     for c in conversions:
         file = c.file
         type = c.type
@@ -219,8 +222,9 @@ def processConversions():
         md = c.md
 
         convertToM4B(file, type, md)
+        track = mutagen.File(file, easy=True)
 
-        if settings.fetch and settings.clean and not settings.copy:
+        if settings.fetch and settings.clean and settings.move:
             #if copying, we will only clean the copied file
             cleanMetadata(track, md)
         
@@ -240,15 +244,17 @@ def processFile(file):
         md = fetchMetadata(file, track)
         #TODO set md.bookPath according to rename
         md.bookPath = settings.output + f"\{md.author}\{md.title}"
+        Path(md.bookPath).mkdir(parents = True, exist_ok = True)
 
         if settings.create:
             createOpf(md)
 
         if settings.convert and type != '.m4b':
+            log.debug(f"Queueing {file.name} for conversion")
             conversions.append(Conversion(file, track, type, md))
             return
 
-        if settings.clean and not settings.copy:
+        if settings.clean and settings.move:
             #if copying, we will only clean the copied file
             cleanMetadata(track, md)
 
@@ -265,6 +271,8 @@ def processFileEnding(file, track, md):
         pass
 
     #TODO fails and skips - skips up top?
+    #TODO check for existing book
+    log.debug(f"Making directory {md.bookPath} if not exists")
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
         # file.rename(md.bookPath + file.name)
