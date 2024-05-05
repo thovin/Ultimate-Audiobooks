@@ -34,11 +34,9 @@ def convertToM4B(file, type, md):
     log.info("converting " + file.name + " to M4B")
     cmd = ['ffmpeg',
            '-i', file,  #input file
-        #    '-codec:a', 'aac', #codec, audio
-        #    '-b:a', '64k', #bitrate, audio
+           '-codec', 'copy', #codec, audio
            '-vn',   #disable video
            '-f', 'mp4', #force output format
-           '-threads', '1',    #TODO remove or rework before release
            '-y', #yes, overwrite existing file (due to same name)
            file.with_suffix('.m4b')]    #output file
     
