@@ -31,23 +31,26 @@ def combine(folder):
 
 
 def convertToM4B(file, type, md):
-    log.info("converting " + file.name + " to M4B")
+    #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
+    #When moving we convert in place and allow the move to be handled in EOF processing
+    log.info("Converting " + file.name + " to M4B")
+    newPath = Path(md.bookPath + "\\" + file.with_suffix('.mp4').name)
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec', 'copy', #codec, audio
            '-vn',   #disable video
-           '-f', 'mp4', #force output format
-           '-y', #yes, overwrite existing file (due to same name)
-           file.with_suffix('.m4b')]    #output file
+           newPath]
     
     
     if type == '.mp3':
         log.debug("Converting MP3 to M4B")
         try:
             subprocess.run(cmd, check=True)
-            newFile = file.with_suffix('.m4b')
-            file.unlink()   #delete original file
-            return newFile
+
+            if settings.move:
+                file.unlink()   #delete original file
+
+            return newPath.rename(newPath.with_suffix('.m4b'))
         except subprocess.CalledProcessError as e:
             log.error(f"Conversion failed! Aborting file...")
             md.failed = True
@@ -55,13 +58,17 @@ def convertToM4B(file, type, md):
 
     elif type == '.mp4':
         log.debug("Converting MP4 to M4B")
-        newName = file.with_suffix('.m4b')
-        file.rename(newName)
+
+        if settings.move:
+            return file.rename(file.with_suffix('.m4b'))
+        else:
+            return shutil.copy(file, newPath.with_suffix('.m4b'))
+
 
 def cleanMetadata(track, md):
     log.info("Cleaning file metadata")
     if isinstance(track, mp3.EasyMP3):
-        log.debug("cleaning easymp3 metadata")
+        log.debug("Cleaning easymp3 metadata")
 
         #TODO genres
         track.delete()
@@ -69,7 +76,7 @@ def cleanMetadata(track, md):
         track['artist'] = md.narrator
         track['album'] = md.series
         track['date'] = md.publishYear
-        track['discNumber'] = md.volumeNumber
+        track['discnumber'] = md.volumeNumber
         track['author'] = md.author
         track['asin'] = md.asin
         track.ID3.RegisterTXXXKey('description', md.summary)
@@ -78,7 +85,7 @@ def cleanMetadata(track, md):
         track.ID3.RegisterTXXXKey('publisher', md.publisher)
 
     elif isinstance(track, easymp4.EasyMP4):
-        log.debug("cleaning easymp4 metadata")
+        log.debug("Cleaning easymp4 metadata")
         track.RegisterTextKey('narrator', '@nrt')
         track.RegisterTextKey('author', '@aut')
         track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
@@ -92,15 +99,17 @@ def cleanMetadata(track, md):
         track['narrator'] = md.narrator
         track['date'] = md.publishYear
         track['description'] = md.summary
-        track['discNumber'] = md.volumeNumber
         track['author'] = md.author
         track['publisher'] = md.publisher
         track['isbn'] = md.isbn
         track['asin'] = md.asin
         track['series'] = md.series
 
+        if md.volumeNumber != "":
+            track['discnumber'] = md.volumeNumber
+
     elif isinstance(track, mp3.MP3):
-        log.debug("cleaning mp3 metadata")
+        log.debug("Cleaning mp3 metadata")
 
         track.delete()
         track.add(mutagen.TIT2(encoding = 3, text = md.title))
@@ -118,7 +127,7 @@ def cleanMetadata(track, md):
         track.add(mutagen.TXXX(encoding = 3, desc='publisher', text = md.publisher))
 
     elif isinstance(track, mp4.MP4):
-        log.debug("cleaning mp4/m4b metadata")
+        log.debug("Cleaning mp4/m4b metadata")
         
         track['\xa9nam'] = md.title
         # track['\xa9gen'] = md.genres[0]
@@ -185,6 +194,83 @@ def createOpf(md):
     with open (md.bookPath + "/metadata.opf", "wb") as outFile:
         log.debug("Write OPF file")
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
+            
+
+def processConversions():
+    #TODO explore converting in parallel?
+    log.info("Processing conversions")
+    for c in conversions:
+        file = c.file
+        type = c.type
+        track = c.track
+        md = c.md
+
+        file = convertToM4B(file, type, md)
+        track = mutagen.File(file, easy=True)
+
+        if settings.fetch and settings.clean and settings.move:
+            #if copying, we will only clean the copied file
+            cleanMetadata(track, md)
+        
+        if settings.rename:
+            #TODO
+            #again, only apply to copy
+            pass
+
+        
+
+def processFile(file):
+    log.info(f"Processing {file.name}")
+    track = mutagen.File(file, easy=True)
+    type = Path(file).suffix.lower()
+    md = Metadata   #need parends after metadata for constructor call?
+    md.bookPath = settings.output
+
+
+    if settings.fetch:
+        #existing OPF is ignored in single level batch
+        md = fetchMetadata(file, track)
+
+        #TODO set md.bookPath according to rename
+        md.bookPath = settings.output + f"\{md.author}\{md.title}"
+        log.debug(f"Making directory {md.bookPath} if not exists")
+        Path(md.bookPath).mkdir(parents = True, exist_ok = True)
+
+        if settings.create:
+            createOpf(md)
+
+        if settings.convert and type != '.m4b':
+            log.debug(f"Queueing {file.name} for conversion")
+            conversions.append(Conversion(file, track, type, md))
+            return
+
+        if settings.clean and settings.move:
+            #if copying, we will only clean the copied file
+            cleanMetadata(track, md)
+
+    if settings.convert and type != '.m4b':
+        conversions.append(Conversion(file, track, type, md)) 
+        return
+
+    if settings.rename:
+        #TODO
+        #again, only apply to copy
+        pass
+
+    #TODO fails and skips - skips up top?
+    #TODO check for existing book
+    
+    if settings.move:
+        log.info("Moving " + file.name + " to " + md.bookPath)
+        file.rename(md.bookPath)
+        # file.rename(md.bookPath + file.name)
+        # shutil.move(file, md.bookPath)
+    else:
+        if settings.fetch:
+            cleanMetadata(track, md)
+
+        log.info("Copying " + file.name + " to " + md.bookPath)
+        shutil.copy(file, md.bookPath)
 
 
 def singleLevelBatch():
@@ -204,83 +290,12 @@ def singleLevelBatch():
 
     for file in files:
         processFile(file)
-        if len(conversions) > 0:
+        
+    if len(conversions) > 0:
             processConversions()
 
     log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
-            
 
-def processConversions():
-    #TODO explore converting in parallel?
-    log.info("Processing conversions")
-    for c in conversions:
-        file = c.file
-        type = c.type
-        track = c.track
-        md = c.md
-
-        convertToM4B(file, type, md)
-        track = mutagen.File(file, easy=True)
-
-        if settings.fetch and settings.clean and settings.move:
-            #if copying, we will only clean the copied file
-            cleanMetadata(track, md)
-        
-        processFileEnding(file, track, md)
-
-        
-
-def processFile(file):
-    log.info(f"Processing {file.name}")
-    track = mutagen.File(file, easy=True)
-    type = Path(file).suffix.lower()
-    md = Metadata   #need parends after metadata for constructor call?
-
-
-    if settings.fetch:
-        #existing OPF is ignored in single level batch
-        md = fetchMetadata(file, track)
-        #TODO set md.bookPath according to rename
-        md.bookPath = settings.output + f"\{md.author}\{md.title}"
-        Path(md.bookPath).mkdir(parents = True, exist_ok = True)
-
-        if settings.create:
-            createOpf(md)
-
-        if settings.convert and type != '.m4b':
-            log.debug(f"Queueing {file.name} for conversion")
-            conversions.append(Conversion(file, track, type, md))
-            return
-
-        if settings.clean and settings.move:
-            #if copying, we will only clean the copied file
-            cleanMetadata(track, md)
-
-    if settings.convert and type != '.m4b':
-        conversions.append(Conversion(file, track, type, md)) 
-        return
-
-    processFileEnding(file, track, md)
-
-def processFileEnding(file, track, md):
-    if settings.rename:
-        #TODO
-        #again, only apply to copy
-        pass
-
-    #TODO fails and skips - skips up top?
-    #TODO check for existing book
-    log.debug(f"Making directory {md.bookPath} if not exists")
-    if settings.move:
-        log.info("Moving " + file.name + " to " + md.bookPath)
-        # file.rename(md.bookPath + file.name)
-        shutil.move(file, md.bookPath)
-    else:
-        if settings.fetch:
-            cleanMetadata(track, md)
-
-        log.info("Copying " + file.name + " to " + md.bookPath)
-        shutil.copy(file, md.bookPath)
 
 def recursivelyFetchBatch():
     return
