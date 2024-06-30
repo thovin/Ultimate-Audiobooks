@@ -8,6 +8,7 @@ import subprocess
 import os
 import shutil
 import logging
+import FileMerger
 
 class Conversion:
     def __init__(self, file, track, type, md):
@@ -37,7 +38,7 @@ def convertToM4B(file, type, md):
     newPath = Path(md.bookPath + "\\" + file.with_suffix('.mp4').name)
     cmd = ['ffmpeg',
            '-i', file,  #input file
-           '-codec', 'copy', #codec, audio
+           '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
            newPath]
     
@@ -292,18 +293,80 @@ def singleLevelBatch():
         processFile(file)
         
     if len(conversions) > 0:
-            processConversions()
+        processConversions()
 
     log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
 
 
 def recursivelyFetchBatch():
+    log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
+    infolder = Path(settings.input)
+    files = list(islice(infolder.rglob("*.m4*"), settings.batch))    #.m4a, .m4b
+
+    if len(files) < settings.batch:
+        for file in list(islice(infolder.rglob("*.mp*"), settings.batch - len(files))):  #.mp3, .mp4
+            files.append(file)
+
+    # if len(files) < settings.batch:
+    #     files.append(list(islice(infolder.rglob("*.flac"), settings.batch - len(files))))
+
+    # if len(files) < settings.batch:
+    #     files.append(list(islice(infolder.rglob("*.wma"), settings.batch - len(files))))
+
+    for file in files:
+        processFile(file)
+        
+    if len(conversions) > 0:
+        processConversions()
+
+    log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
+
+
     return
 
 
-def recursivelyCombineBatch():   #TODO single recurse func checking flags?
+def combineAndFindChapters(startPath, outPath):
+    #filepaths or path objects?
+
+
+
+    
+    '''
+    if contains audio file, process
+    elif contains audio files, merge
+    finally begin digging
+
+    dig into dir. If returned list < settings.batch, dig into next.
+
+
+    If -M, nuke emptied folder. Ensure there are no unchecked subfolders first!
+    Either way, combined files should be put into outpath
+
+    '''
     return
+
+
+def recursivelyCombineBatch():
+    log.info("Begin recursively finding, combining, and processing chapter books")
+    infolder = Path(settings.input)
+
+    outFolder = infolder.joinpath("Ultimate temp")
+    counter = 1
+
+    while outFolder.is_dir():
+        outFolder = infolder.joinpath(f"Ultimate temp{counter}")
+        counter += 1
+
+    outFolder.mkdir()
+    combineAndFindChapters(Path(settings.input), outFolder)
+    
+    log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
+    singleLevelBatch(outFolder)
+
+    log.debug("Removing temp folder")   #TODO what happens if there are failed/skipped books in here?
+    outFolder.unlink()
 
 
 def recursivelyPreserveBatch():
+    log.info("Begin resurively finding and processing chapter books (chapters will be preserved)")
     return
