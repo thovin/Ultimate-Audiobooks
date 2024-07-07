@@ -58,13 +58,14 @@ def orderByTitle(tracks):
 
     
 
-def mergeBook(folderPath):  #This assumes chapter files are always mp3
+def mergeBook(folderPath, outPath = False):  #This assumes chapter files are always mp3
     #TODO log
     files = list(islice(folderPath.glob("*.mp3")))
     tracks = []
     pieces = []
     hasMultipleDisks = False
 
+    #TODO this assumes all files are also tracks, BROKEN
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)
@@ -94,8 +95,12 @@ def mergeBook(folderPath):  #This assumes chapter files are always mp3
     #     ms += len(stream)
     #     chapters.append(ms)
 
+    if outPath:
+        newFilepath = outPath + '\\output.mp3'   #TODO give more descriptive name
+    else:
+        newFilepath = folderPath + '\\output.mp3'   #TODO give more descriptive name
+
     tempFilepath = folderPath + '\\tempConcatFileList.txt'
-    newFilepath = folderPath + '\\output.mp3'   #TODO give more descriptive name
     with open (tempFilepath, 'w') as outFile:
         for s in streams:
             outFile.write(f"file '{s}'\n")

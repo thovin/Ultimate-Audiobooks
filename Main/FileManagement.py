@@ -28,7 +28,23 @@ def loadSettings():
 
 
 def combine(folder):
-    return  #FileMerger.py
+    return  #FileMerger.py #redundant?
+
+
+def getAudioFiles(folderPath, batch = -1):
+    files = []
+    files.extend(list(islice(folderPath.glob("*.m4*"))))  #.m4a, .m4b
+    files.extend(list(islice(folderPath.glob("*.mp*"))))  #.mp3, .mp4
+    files.extend(list(islice(folderPath.glob("*.flac"))))  #flac
+    files.extend(list(islice(folderPath.glob("*.wma"))))  #wma
+    files.extend(list(islice(folderPath.glob("*.wav"))))  #wav
+
+    if batch == -1 or len(files) < batch:
+        return files
+    elif len(files) == 0:
+        return -1
+    else:
+        return files[:batch]
 
 
 def convertToM4B(file, type, md):
@@ -277,17 +293,7 @@ def processFile(file):
 def singleLevelBatch():
     log.info("Begin single level batch processing")
     infolder = Path(settings.input)
-    files = list(islice(infolder.glob("*.m4*"), settings.batch))    #.m4a, .m4b
-
-    if len(files) < settings.batch:
-        for file in list(islice(infolder.glob("*.mp*"), settings.batch - len(files))):  #.mp3, .mp4
-            files.append(file)
-
-    # if len(files) < settings.batch:
-    #     files.append(list(islice(infolder.glob("*.flac"), settings.batch - len(files))))
-
-    # if len(files) < settings.batch:
-    #     files.append(list(islice(infolder.glob("*.wma"), settings.batch - len(files))))
+    files = getAudioFiles(infolder, settings.batch)
 
     for file in files:
         processFile(file)
@@ -301,17 +307,7 @@ def singleLevelBatch():
 def recursivelyFetchBatch():
     log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
     infolder = Path(settings.input)
-    files = list(islice(infolder.rglob("*.m4*"), settings.batch))    #.m4a, .m4b
-
-    if len(files) < settings.batch:
-        for file in list(islice(infolder.rglob("*.mp*"), settings.batch - len(files))):  #.mp3, .mp4
-            files.append(file)
-
-    # if len(files) < settings.batch:
-    #     files.append(list(islice(infolder.rglob("*.flac"), settings.batch - len(files))))
-
-    # if len(files) < settings.batch:
-    #     files.append(list(islice(infolder.rglob("*.wma"), settings.batch - len(files))))
+    files = getAudioFiles(infolder, settings.batch)
 
     for file in files:
         processFile(file)
@@ -325,25 +321,41 @@ def recursivelyFetchBatch():
     return
 
 
-def combineAndFindChapters(startPath, outPath):
+def combineAndFindChapters(startPath, outPath, counter):
     #filepaths or path objects?
+    #outpath is a temp dir, no need for naming
+    #if single books are found they are returned, so this works for mixed whole and chapter books 
+
+    subfolders = [path.name for path in Path(startPath).glob('*') if path.is_dir()]
+    for folder in subfolders:
+        if counter <= settings.batch:
+            if settings.move:
+                counter = combineAndFindChapters(folder, outPath, counter)
+            else:
+                pass    #TODO
+        else:
+            return counter
+        
 
 
+    #TODO this doesn't work when copying
+    files = getAudioFiles(startPath)
+    if files == -1:
+        pass
+    elif len(files) == 1:
+        counter += 1
+        files[0].rename(outPath + f"\\{files[0].name}")
+    elif len(files) > 1:
+        counter += 1
+        FileMerger.mergeBook(startPath, outPath)
 
-    
+    return counter
+
     '''
-    if contains audio file, process
-    elif contains audio files, merge
-    finally begin digging
-
-    dig into dir. If returned list < settings.batch, dig into next.
-
-
     If -M, nuke emptied folder. Ensure there are no unchecked subfolders first!
     Either way, combined files should be put into outpath
 
     '''
-    return
 
 
 def recursivelyCombineBatch():
