@@ -33,11 +33,11 @@ def combine(folder):
 
 def getAudioFiles(folderPath, batch = -1):
     files = []
-    files.extend(list(islice(folderPath.glob("*.m4*"))))  #.m4a, .m4b
-    files.extend(list(islice(folderPath.glob("*.mp*"))))  #.mp3, .mp4
-    files.extend(list(islice(folderPath.glob("*.flac"))))  #flac
-    files.extend(list(islice(folderPath.glob("*.wma"))))  #wma
-    files.extend(list(islice(folderPath.glob("*.wav"))))  #wav
+    files.extend(list((folderPath.glob("*.m4*"))))  #.m4a, .m4b
+    files.extend(list(islice(folderPath.glob("*.mp*"), 0)))  #.mp3, .mp4
+    files.extend(list(islice(folderPath.glob("*.flac"), 0)))  #flac
+    files.extend(list(islice(folderPath.glob("*.wma"), 0)))  #wma
+    files.extend(list(islice(folderPath.glob("*.wav"), 0)))  #wav
 
     if batch == -1 or len(files) < batch:
         return files
@@ -290,9 +290,10 @@ def processFile(file):
         shutil.copy(file, md.bookPath)
 
 
-def singleLevelBatch():
+def singleLevelBatch(infolder = None):
     log.info("Begin single level batch processing")
-    infolder = Path(settings.input)
+    if infolder == None:
+        infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch)
 
     for file in files:
@@ -331,6 +332,7 @@ def combineAndFindChapters(startPath, outPath, counter):
         if counter <= settings.batch:
             if settings.move:
                 counter = combineAndFindChapters(folder, outPath, counter)
+                #TODO PROCESS THE DAMN BOOK
             else:
                 pass    #TODO
         else:
@@ -370,7 +372,7 @@ def recursivelyCombineBatch():
         counter += 1
 
     outFolder.mkdir()
-    combineAndFindChapters(Path(settings.input), outFolder)
+    combineAndFindChapters(Path(settings.input), outFolder, 0)
     
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
