@@ -2,9 +2,9 @@ import argparse
 import Settings
 import FileManagement
 import Util
+import Processing
 import logging as log
 from pathlib import Path
-import shutil
 import sys
 
 '''
@@ -25,12 +25,11 @@ def main(args):
     Settings.setSettings(settings)
     FileManagement.loadSettings()
     Util.loadSettings()
+    Processing.loadSettings()
 
     log.debug("Creating output directory if not exists: " + settings.output)
     Path(settings.output).mkdir(parents = True, exist_ok = True)
     processBooks()
-
-
 
 
 def processBooks():
@@ -41,17 +40,16 @@ def processBooks():
         sys.exit()
 
     elif settings.recurseFetch:
-        FileManagement.recursivelyFetchBatch()
+        Processing.recursivelyFetchBatch()
 
     elif settings.recurseCombine:
-        FileManagement.recursivelyCombineBatch()
+        Processing.recursivelyCombineBatch()
 
     elif settings.recursePreserve:
-        FileManagement.recursivelyPreserveBatch()
+        Processing.recursivelyPreserveBatch()
 
     else:
-        FileManagement.singleLevelBatch()
-
+        Processing.singleLevelBatch()
 
 
 if __name__ == "__main__":

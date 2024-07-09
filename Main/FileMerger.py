@@ -1,4 +1,3 @@
-# import pyaudio
 from pydub import AudioSegment
 from itertools import islice
 import mutagen
@@ -33,6 +32,7 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
 
     return chapters
 
+
 def orderByTitle(tracks):
     number = 1
 
@@ -54,8 +54,6 @@ def orderByTitle(tracks):
             for key in ordered:
                 tracksOut.append(trackMap[key])
             return tracksOut
-    
-
     
 
 def mergeBook(folderPath, outPath = False):  #This assumes chapter files are always mp3
