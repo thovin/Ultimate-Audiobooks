@@ -1,6 +1,5 @@
 import argparse
 import Settings
-import FileManagement
 import Util
 import Processing
 import logging as log
@@ -23,7 +22,7 @@ def main(args):
     global settings
     settings = Settings.Settings(args)
     Settings.setSettings(settings)
-    FileManagement.loadSettings()
+    # FileManagement.loadSettings()
     Util.loadSettings()
     Processing.loadSettings()
 
