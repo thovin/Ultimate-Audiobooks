@@ -13,6 +13,7 @@ import subprocess
 import shutil
 import xml.etree.ElementTree as ET
 import FileMerger
+import os
 
 log = logging.getLogger(__name__)
 settings = None
@@ -451,11 +452,11 @@ def loadSettings():
 
 def getAudioFiles(folderPath, batch = -1):
     files = []
-    files.extend(list((folderPath.glob("*.m4*"))))  #.m4a, .m4b
-    files.extend(list(islice(folderPath.glob("*.mp*"), 0)))  #.mp3, .mp4
-    files.extend(list(islice(folderPath.glob("*.flac"), 0)))  #flac
-    files.extend(list(islice(folderPath.glob("*.wma"), 0)))  #wma
-    files.extend(list(islice(folderPath.glob("*.wav"), 0)))  #wav
+    files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
+    files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
+    files.extend(list(folderPath.glob("*.flac")))  #flac
+    files.extend(list(folderPath.glob("*.wma")))  #wma
+    files.extend(list(folderPath.glob("*.wav")))  #wav
 
     if batch == -1 or len(files) < batch:
         return files
@@ -634,12 +635,11 @@ def combineAndFindChapters(startPath, outPath, counter):
     #outpath is a temp dir, no need for naming
     #if single books are found they are returned, so this works for mixed whole and chapter books 
 
-    subfolders = [path.name for path in Path(startPath).glob('*') if path.is_dir()]
+    subfolders = [path for path in startPath.glob('*') if path.is_dir()]
     for folder in subfolders:
         if counter <= settings.batch:
             if settings.move:
                 counter = combineAndFindChapters(folder, outPath, counter)
-                #TODO PROCESS THE DAMN BOOK
             else:
                 pass    #TODO
         else:
@@ -653,7 +653,7 @@ def combineAndFindChapters(startPath, outPath, counter):
         pass
     elif len(files) == 1:
         counter += 1
-        files[0].rename(outPath + f"\\{files[0].name}")
+        files[0].rename(outPath / f"{files[0].name}")
     elif len(files) > 1:
         counter += 1
         FileMerger.mergeBook(startPath, outPath)
@@ -666,4 +666,12 @@ def combineAndFindChapters(startPath, outPath, counter):
 
     '''
 
+def getUniquePath(book, outpath):
+    counter = 1
+    ogPath = outpath + "\\" + book.name
+    currPath = ogPath
+    while os.path.exists(currPath):
+        counter += 1
+        currPath = ogPath + " - " + str(counter)
 
+    return currPath

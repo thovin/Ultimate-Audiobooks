@@ -3,6 +3,9 @@ from itertools import islice
 import mutagen
 import re
 import subprocess
+import logging
+
+log = logging.getLogger(__name__)
 
 def findTitleNum(title, whichNum) -> int:
     try:
@@ -43,7 +46,8 @@ def orderByTitle(tracks):
 
         ordered = sorted(trackMap.keys())
 
-        if trackMap[-1]:
+        # if trackMap[-1]:
+        if -1 in trackMap:
             #TODO skip this book
             break   #no more numbers, no order beginning in 1
         elif ordered[0] != 1 or ordered[1] != 2: #check first two in case we get 1, 1, 1, ...
@@ -58,7 +62,8 @@ def orderByTitle(tracks):
 
 def mergeBook(folderPath, outPath = False):  #This assumes chapter files are always mp3
     #TODO log
-    files = list(islice(folderPath.glob("*.mp3")))
+    log.debug("Begin merging chapters in " + folderPath.name)
+    files = list(folderPath.glob("*.mp3"))
     tracks = []
     pieces = []
     hasMultipleDisks = False
@@ -67,8 +72,12 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)
-        if track['discnumber'] != 1:
-            hasMultipleDisks = True
+
+        try:
+            if track['discnumber'] != 1:
+                hasMultipleDisks = True
+        except KeyError:
+            pass
 
     try:
         pieces = orderByTrackNumber(tracks, hasMultipleDisks)
@@ -78,10 +87,12 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
     if len(pieces) == 0:
         pieces = orderByTitle(tracks)
 
+    log.debug("Pieces ordered")
 
-    streams = []
-    for p in pieces:  #.mp3, .mp4
-        streams.append(AudioSegment.from_file(p))
+    if False:   #TODO testing not extracting audio
+        streams = []
+        for p in pieces:  #.mp3, .mp4
+            streams.append(AudioSegment.from_file(p.filename))  #from_file uses ffmpeg to extract the audio from each file individually. Too slow?
 
     #TODO rename master file
     #TODO use Mutagen library to add chapter markers in metadata, for mp4 file. Manually convert to m4b in post.
@@ -94,23 +105,30 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
     #     chapters.append(ms)
 
     if outPath:
-        newFilepath = outPath + '\\output.mp3'   #TODO give more descriptive name
+        # newFilepath = outPath / 'output.mp3'   #TODO give more descriptive name PRESSING
+        newFilepath = outPath / folderPath.name   #TODO give more descriptive name PRESSING
     else:
-        newFilepath = folderPath + '\\output.mp3'   #TODO give more descriptive name
+        # newFilepath = folderPath / 'output.mp3'   #TODO give more descriptive name
+        newFilepath = folderPath / folderPath.name   #TODO give more descriptive name
 
-    tempFilepath = folderPath + '\\tempConcatFileList.txt'
+    log.debug("Write files to tempConcatFileList")
+    tempFilepath = folderPath / 'tempConcatFileList.txt'
     with open (tempFilepath, 'w') as outFile:
-        for s in streams:
-            outFile.write(f"file '{s}'\n")
+        # for s in streams:
+        for p in pieces:   #TODO testing not extracting audio
+            # outFile.write(f"file '{s}'\n")
+            outFile.write(f"file '{p.filename}'\n")
 
     cmd = ['ffmpeg', 
            '-f', 'concat',
-           'safe', '0',
+           '-safe', '0',
            '-i', tempFilepath,
            '-codec', 'copy',    #copy audio streams instead of re-encoding
+           '-vn',   #disable video
            newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
            ]
     
+    log.debug("Begin combining")
     try:
         subprocess.run(cmd, check=True)
 

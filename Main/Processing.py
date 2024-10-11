@@ -2,6 +2,7 @@ import logging
 from Settings import getSettings
 from pathlib import Path
 from Util import *
+import os
 
 
 
@@ -74,11 +75,10 @@ def processFile(file):
         pass
 
     #TODO fails and skips - skips up top?
-    #TODO check for existing book
     
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
-        file.rename(md.bookPath)
+        file.rename(getUniquePath(file, md.bookPath))
         # file.rename(md.bookPath + file.name)
         # shutil.move(file, md.bookPath)
     else:
@@ -86,7 +86,7 @@ def processFile(file):
             cleanMetadata(track, md)
 
         log.info("Copying " + file.name + " to " + md.bookPath)
-        shutil.copy(file, md.bookPath)
+        shutil.copy(file, getUniquePath(file, md.bookPath))
 
 def recursivelyCombineBatch():
     log.info("Begin recursively finding, combining, and processing chapter books")
@@ -96,11 +96,11 @@ def recursivelyCombineBatch():
     counter = 1
 
     while outFolder.is_dir():
-        outFolder = infolder.joinpath(f"Ultimate temp{counter}")
+        outFolder = infolder.joinpath(f"Ultimate temp{counter}")    #TODO any reason not to just nuke the old one?
         counter += 1
 
     outFolder.mkdir()
-    combineAndFindChapters(Path(settings.input), outFolder, 0)
+    combineAndFindChapters(infolder, outFolder, 0)  #TODO ultimate temp is scanned like an input folder
     
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
