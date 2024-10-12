@@ -10,7 +10,10 @@ settings = None
 class Settings:
     def __init__(self, args):
         if self.load:  
-            self.load()
+            try:
+                self.load()
+            except FileNotFoundError:
+                log.debug("No saved settings found! Skipping load.")
 
         log.info("Parsing settings")
         for arg, value in vars(args).items():
