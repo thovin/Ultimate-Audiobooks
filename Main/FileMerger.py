@@ -107,11 +107,11 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
     if outPath:
         # newFilepath = outPath / 'output.mp3'   
         # newFilepath = outPath / folderPath.name   
-        newFilepath = outPath / files[0].name   #TODO find a way to set this to the book's title OR set the title in processing
+        newFilepath = outPath / (folderPath.name + " - " + files[0].name)   #TODO stick with parent folder name or find a more surefire way to get the title?
     else:
         # newFilepath = folderPath / 'output.mp3'   
         # newFilepath = folderPath / folderPath.name   #TODO fix name
-        newFilepath = folderPath / files[0].name   #TODO fix name
+        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)   #TODO decide name
 
     log.debug("Write files to tempConcatFileList")
     tempFilepath = folderPath / 'tempConcatFileList.txt'
