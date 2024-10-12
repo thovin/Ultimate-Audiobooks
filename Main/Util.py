@@ -636,6 +636,8 @@ def combineAndFindChapters(startPath, outPath, counter):
     #if single books are found they are returned, so this works for mixed whole and chapter books 
 
     subfolders = [path for path in startPath.glob('*') if path.is_dir()]
+    if outPath in subfolders:
+        subfolders.remove(outPath)    #prevents Ultimate temp from being processed
     for folder in subfolders:
         if counter <= settings.batch:
             if settings.move:

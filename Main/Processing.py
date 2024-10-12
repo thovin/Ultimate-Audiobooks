@@ -93,20 +93,18 @@ def recursivelyCombineBatch():
     infolder = Path(settings.input)
 
     outFolder = infolder.joinpath("Ultimate temp")
-    counter = 1
 
-    while outFolder.is_dir():
-        outFolder = infolder.joinpath(f"Ultimate temp{counter}")    #TODO any reason not to just nuke the old one?
-        counter += 1
+    if outFolder.is_dir():
+        outFolder.rmdir()
 
     outFolder.mkdir()
-    combineAndFindChapters(infolder, outFolder, 0)  #TODO ultimate temp is scanned like an input folder
+    combineAndFindChapters(infolder, outFolder, 0)
     
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
 
     log.debug("Removing temp folder")   #TODO what happens if there are failed/skipped books in here?
-    outFolder.unlink()
+    outFolder.rmdir()
 
 
 def recursivelyPreserveBatch():
