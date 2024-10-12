@@ -57,12 +57,11 @@ I have not tested this program on a clean machine yet. It definitely has a depen
     - NOTE: if **convert** is not passed, the filetype of the combined book will be that of the chapters
     - NOTE: solitary files will be processed without any combination operation, allowing this to work on a mixed library of whole and chapter books in separate directories. However, **whole books found in the same directory will be combined.**
     - NOTE: recursive fetch, combine, and preserve are <ins>exclusive and required.</ins> One and only one must be selected!
-    - <ins>NOTE: when processing chapter books, it is strongly recommended to use **fetch!**</ins> If **fetch** is not called, all chapter files will end up lumped together in the output folder. This behavior will likely be corrected in future through use of **rename**.
     - **NOTE: This feature is** **partially implemented. Results may vary!**
 - Recursively preserve chapter books (-RP, --recursePreserve) // arguments = N/A, default = false, REQUIRED/EXCLUSIVE
     - Recursively traverse subfolders of input, processing all files in a directory as if they are the chapters of a book. This will NOT combine the files.
     - NOTE: recursive fetch, combine, and preserve are <ins>exclusive and required.</ins> One and only one must be selected!
-    - <ins>NOTE: when processing chapter books, it is strongly recommended to use **fetch!**</ins> If **fetch** is not called, all chapter files will end up lumped together in the output folder. This behavior will likely be corrected in future through use of **rename**.
+    - <ins>NOTE: because the chapters are not combined, it is strongly recommended to use **fetch!**</ins> If **fetch** is not called, all chapter files will end up lumped together in the output folder. This behavior will likely be corrected in future through use of **rename**.
     - **NOTE: this feature has not been implemented**
 - Save settings (-S, --save) // arguments = N/A, default = false
     - Save this execution's settings for future use
@@ -88,7 +87,7 @@ With the root folder "c:\\some\\input\\folder", this will **fetch** metadata int
 
 `Main.py --batch 99999 --save --recurseCombine --input c:\some\input\folder --output c:\some\output\folder`
 
-With the root folder "c:\\some\\input\\folder", this will set the **batch size** to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder. It will also save the settings used on this execution. Note that the result of this would be a lot of chapter files in the output folder, as we are not employing **fetch**.
+With the root folder "c:\\some\\input\\folder", this will set the **batch size** to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder. It will also save the settings used on this execution.
 
 &nbsp;
 
