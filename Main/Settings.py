@@ -9,15 +9,15 @@ settings = None
 
 class Settings:
     def __init__(self, args):
+        if self.load:  
+            self.load()
+
         log.info("Parsing settings")
         for arg, value in vars(args).items():
             setattr(self, arg, value)
 
-        if self.save:   #save before loading so we don't have to deal with making the two exclusive
+        if self.save:   
             self.save()
-
-        if self.load:
-            self.load()
 
         if not self.output:
             outPath = str(Path(self.input).parent / "Ultimate Output")
