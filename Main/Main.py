@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
     parser.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
     parser.add_argument("-S", "--save", action = "store_true") #save settings for future executions
+    parser.add_argument("-W", "--workers", type=int, default = -1)  #set number of workers to process conversions
 
     args = parser.parse_args()
     log.debug("Arguments parsed successfully")

@@ -14,6 +14,7 @@ import shutil
 import xml.etree.ElementTree as ET
 import FileMerger
 import os
+import psutil
 
 log = logging.getLogger(__name__)
 settings = None
@@ -56,7 +57,7 @@ def getTitle(track):
     log.debug("Extracting title from track")
 
     if isinstance(track, mp3.EasyMP3):
-        if track['title'] != "":
+        if track['title'] != "":    #TODO keyerror processing foundryside
             return track['title'][0]
         elif track['album'] != "":
             return track['album'][0]
@@ -466,7 +467,7 @@ def getAudioFiles(folderPath, batch = -1):
         return files[:batch]
 
 
-def convertToM4B(file, type, md):
+def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
     log.info("Converting " + file.name + " to M4B")
@@ -678,3 +679,11 @@ def getUniquePath(book, outpath):
         currPath = ogPath + " - " + str(counter)
 
     return currPath
+
+
+def calculateWorkerCount():
+    log.debug("Finding worker count")
+    numCores = os.cpu_count()
+    availableMemory = psutil.virtual_memory().available / (1024 ** 3)   #converts to Gb
+
+    return numCores / 2 if numCores / 2 < availableMemory - 2 else availableMemory - 2

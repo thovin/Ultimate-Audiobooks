@@ -3,6 +3,8 @@ from Settings import getSettings
 from pathlib import Path
 from Util import *
 import os
+from concurrent.futures import ProcessPoolExecutor, wait
+import math
 
 
 
@@ -14,26 +16,44 @@ def loadSettings():
     global settings
     settings = getSettings()
 
+def processConversion(c, settings): #This is run through ProcessPoolExecutor, which limits access to globals
+    file = c.file
+    type = c.type
+    track = c.track
+    md = c.md
+
+    file = convertToM4B(file, type, md, settings)
+    track = mutagen.File(file, easy=True)
+
+    if settings.fetch and settings.clean and settings.move:
+        #if copying, we will only clean the copied file
+        cleanMetadata(track, md)
+    
+    if settings.rename:
+        #TODO
+        #again, only apply to copy
+        pass
+
+
+
 def processConversions():
     #TODO explore converting in parallel?
     log.info("Processing conversions")
-    for c in conversions:
-        file = c.file
-        type = c.type
-        track = c.track
-        md = c.md
 
-        file = convertToM4B(file, type, md)
-        track = mutagen.File(file, easy=True)
+    numWorkers = settings.workers
+    if numWorkers == -1:
+        numWorkers = math.floor(calculateWorkerCount())
+        log.info(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
 
-        if settings.fetch and settings.clean and settings.move:
-            #if copying, we will only clean the copied file
-            cleanMetadata(track, md)
-        
-        if settings.rename:
-            #TODO
-            #again, only apply to copy
-            pass
+    with ProcessPoolExecutor(max_workers=numWorkers) as controller:
+        # futures = controller.map(processConversion, conversions, settings)
+        # futures = controller.map(lambda conversion: processConversion(conversion, settings), conversions)
+        futures = []
+
+        for c in conversions:
+            futures.append(controller.submit(processConversion, c, settings))
+
+        wait(futures)
 
 
 def processFile(file):
