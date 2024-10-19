@@ -48,19 +48,19 @@ I have not tested this program on a clean machine yet. It definitely has a depen
     - Rename book files according to the input template
     - **NOTE: This feature has not been implemented**
     - NOTE: even if this flag is not passed, numbers will still appended to filenames as needed to prevent overwriting existing book files in the destination
-- Recursively fetch books (-RF, --recurseFetch) // arguments = N/A, default = false, REQUIRED/EXCLUSIVE
+- Recursively fetch books (-RF, --recurseFetch) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse input folder and all subfolders, processing all audio files as books.
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive and required.</ins> One and only one must be selected!
-- Recursively combine chapter books (-RC, --recurseCombine) // arguments = N/A, default = false, REQUIRED/EXCLUSIVE
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
+- Recursively combine chapter books (-RC, --recurseCombine) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse subfolders of input, combining all audio files in a given directory. Combination algorithm will sort books based on track number in metadata if available, and numerical values in the filename if not.
     - NOTE: input folder itself is ignored in this operation
     - NOTE: if **convert** is not passed, the filetype of the combined book will be that of the chapters
     - NOTE: solitary files will be processed without any combination operation, allowing this to work on a mixed library of whole and chapter books in separate directories. However, **whole books found in the same directory will be combined.**
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive and required.</ins> One and only one must be selected!
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
     - **NOTE: This feature is** **partially implemented. Results may vary!**
-- Recursively preserve chapter books (-RP, --recursePreserve) // arguments = N/A, default = false, REQUIRED/EXCLUSIVE
+- Recursively preserve chapter books (-RP, --recursePreserve) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse subfolders of input, processing all files in a directory as if they are the chapters of a book. This will NOT combine the files.
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive and required.</ins> One and only one must be selected!
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
     - <ins>NOTE: because the chapters are not combined, it is strongly recommended to use **fetch!**</ins> If **fetch** is not called, all chapter files will end up lumped together in the output folder. This behavior will likely be corrected in future through use of **rename**.
     - **NOTE: this feature has not been implemented**
 - Save settings (-S, --save) // arguments = N/A, default = false
@@ -79,18 +79,24 @@ The command should be entered with your working directory set to Main
 
 &nbsp;
 
-`Main.py --clean --create infotext --fetch both --move --recurse Fetch --input c:\some\input\folder`
+`Main.py --input c:\some\input\folder`
 
-With the root folder "c:\\some\\input\\folder", this will **fetch** metadata interactively, **clean** the file metadata, **create** an infotext metadata file, and **move** the books to "c:\\some\\input\\folder\\"Ultimate Output"\\&lt;author&gt;\\&lt;title&gt;". This will be done to all books in the input folder and any subfolders until completion or the **batch size** has been reached.
+The most basic use. All files in the root **input** folder will be processed as individual books and copied to "c:\\some\\input\\folder\\Ultimate Output"
+
+&nbsp;
+
+`Main.py --clean --create infotext --fetch both --move --recurseFetch --input c:\some\input\folder`
+
+With the root folder "c:\\some\\input\\folder", this will **fetch** metadata interactively, **clean** the file metadata, **create** an infotext metadata file, and **move** the books to "c:\\some\\input\\folder\\Ultimate Output\\&lt;author&gt;\\&lt;title&gt;". This will be done to all books in the input folder and any subfolders until completion or the **batch size** has been reached.
 
 &nbsp;
 
 `Main.py --batch 99999 --save --recurseCombine --input c:\some\input\folder --output c:\some\output\folder`
 
-With the root folder "c:\\some\\input\\folder", this will set the **batch size** to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder. It will also save the settings used on this execution.
+With the root folder "c:\\some\\input\\folder", this will set the **batch size** to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder". It will also save the settings used on this execution.
 
 &nbsp;
 
 `Main.py --load --quick --move --input c:\some\input\folder`
 
-With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move****, input,** and **quick.**
+With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move**, **input**, and **quick.**
