@@ -4,6 +4,8 @@ import mutagen
 import re
 import subprocess
 import logging
+import tempfile
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -89,11 +91,6 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
 
     log.debug("Pieces ordered")
 
-    if False:   #TODO testing not extracting audio
-        streams = []
-        for p in pieces:  #.mp3, .mp4
-            streams.append(AudioSegment.from_file(p.filename))  #from_file uses ffmpeg to extract the audio from each file individually. Too slow?
-
     #TODO rename master file
     #TODO use Mutagen library to add chapter markers in metadata, for mp4 file. Manually convert to m4b in post.
     # master = AudioSegment.empty()
@@ -113,22 +110,25 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
         # newFilepath = folderPath / folderPath.name   #TODO fix name
         newFilepath = folderPath / (folderPath.name + " - " + files[0].name)   #TODO decide name
 
+
+
     log.debug("Write files to tempConcatFileList")
-    tempFilepath = folderPath / 'tempConcatFileList.txt'
-    with open (tempFilepath, 'w') as outFile:
-        # for s in streams:
-        for p in pieces:   #TODO testing not extracting audio
-            # outFile.write(f"file '{s}'\n")
-            outFile.write(f"file '{p.filename}'\n")
+    tempFilepath = ""
+    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempFile:
+        for p in pieces:
+            tempFile.write(f"file '{p.filename}'\n")
+
+        tempFilepath = tempFile.name
+        
 
     cmd = ['ffmpeg', 
-           '-f', 'concat',
-           '-safe', '0',
-           '-i', tempFilepath,
-           '-codec', 'copy',    #copy audio streams instead of re-encoding
-           '-vn',   #disable video
-           newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
-           ]
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', tempFilepath,
+        '-codec', 'copy',    #copy audio streams instead of re-encoding
+        '-vn',   #disable video
+        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
+        ]
     
     log.debug("Begin combining")
     try:
@@ -136,6 +136,9 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
 
     except subprocess.CalledProcessError as e:
         return #TODO
+    
+    Path(tempFilepath).unlink()
+
     
     #TODO return combined file AND chapter info
     return newFilepath

@@ -650,6 +650,7 @@ def combineAndFindChapters(startPath, outPath, counter, root):
 
 
     #TODO this doesn't work when copying
+    #TODO delete chapter files and/or folder after processing. Make sure you don't accidently kill subs.
     files = getAudioFiles(startPath)
     if files == -1 or startPath == root:    #ignore files in the root folder
         pass
