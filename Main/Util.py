@@ -630,7 +630,7 @@ def createOpf(md):
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
             
 
-def combineAndFindChapters(startPath, outPath, counter):
+def combineAndFindChapters(startPath, outPath, counter, root):
     #filepaths or path objects?
     #outpath is a temp dir, no need for naming
     #if single books are found they are returned, so this works for mixed whole and chapter books 
@@ -641,7 +641,7 @@ def combineAndFindChapters(startPath, outPath, counter):
     for folder in subfolders:
         if counter <= settings.batch:
             if settings.move:
-                counter = combineAndFindChapters(folder, outPath, counter)
+                counter = combineAndFindChapters(folder, outPath, counter, root)
             else:
                 pass    #TODO
         else:
@@ -651,7 +651,7 @@ def combineAndFindChapters(startPath, outPath, counter):
 
     #TODO this doesn't work when copying
     files = getAudioFiles(startPath)
-    if files == -1:
+    if files == -1 or startPath == root:    #ignore files in the root folder
         pass
     elif len(files) == 1:
         counter += 1

@@ -95,10 +95,11 @@ def recursivelyCombineBatch():
     outFolder = infolder.joinpath("Ultimate temp")
 
     if outFolder.is_dir():
-        outFolder.rmdir()
+        # outFolder.rmdir() #only works on empty dirs
+        shutil.rmtree(outFolder)
 
     outFolder.mkdir()
-    combineAndFindChapters(infolder, outFolder, 0)
+    combineAndFindChapters(infolder, outFolder, 0, infolder)
     
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
