@@ -22,7 +22,6 @@ def main(args):
     global settings
     settings = Settings.Settings(args)
     Settings.setSettings(settings)
-    # FileManagement.loadSettings()
     Util.loadSettings()
     Processing.loadSettings()
 
@@ -70,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
     parser.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
     parser.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
-    parser.add_argument("-S", "--save", action = "store_true") #save settings for future excecutions
+    parser.add_argument("-S", "--save", action = "store_true") #save settings for future executions
 
     args = parser.parse_args()
     log.debug("Arguments parsed successfully")
