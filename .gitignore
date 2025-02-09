@@ -1,3 +1,7 @@
 Reference
 __pycache__/
 *.pyc
+ultimateTestEnvironment/
+venv/
+*.code-workspace
+settings.json

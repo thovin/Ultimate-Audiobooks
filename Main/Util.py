@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 import FileMerger
 import os
 import psutil
+import platform
+import urllib.parse
 
 log = logging.getLogger(__name__)
 settings = None
@@ -404,13 +406,36 @@ def fetchMetadata(file, track) -> Metadata:
     if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
         pyperclip.copy("Ultimate Audiobooks")
 
+    searchURL = ""
     #It's not possible for fetch to be anything other than these, as the argparser would throw an error
     if settings.fetch == "audible":
-        webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}", new = 2)
+        searchURL = f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}"
+        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}", new = 2)
     elif settings.fetch == "goodreads":
-        webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}", new=2)
+        searchURL = f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}"
+        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}", new=2)
     elif settings.fetch == "both":
-        webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}", new=2)
+        searchURL = f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}"
+        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}", new=2)
+
+    #some linux OSs don't play nice with webbrowser.open (cries in KDE Neon)
+    if platform.system() == "Windows" or platform.system() == "Darwin":
+        webbrowser.open(searchURL, new = 2)
+    else:
+        webbrowser.get('firefox').open(searchURL, new = 2)
+
+
+        #TODO see if you can get one of these to work, for the nice distros
+        # openedTab = webbrowser.open(searchURL, new = 2)
+        # if not openedTab:
+        #     webbrowser.get('firefox').open(searchURL, new = 2)
+
+        # try:
+        #     webbrowser.open(searchURL, new = 2)
+        # except:
+        #     # subprocess.run(['xdg-open', searchURL], check=True)
+        #     webbrowser.get('firefox').open(searchURL, new = 2)
+
 
     tempClipboard = pyperclip.paste()
     log.info("Waiting for URL")
@@ -471,7 +496,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
     log.info("Converting " + file.name + " to M4B")
-    newPath = Path(md.bookPath + "\\" + file.with_suffix('.mp4').name)
+    newPath = Path(md.bookPath + "/" + file.with_suffix('.mp4').name)   #TODO forward slashes ok on windows?
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec', 'copy', #copy audio streams instead of re-encoding
@@ -672,11 +697,11 @@ def combineAndFindChapters(startPath, outPath, counter, root):
 
 def getUniquePath(book, outpath):
     counter = 1
-    ogPath = outpath + "\\" + book.name
+    ogPath = outpath + "/" + book.name  #forward slash ok on windows?
     currPath = ogPath
     while os.path.exists(currPath):
-        counter += 1
         currPath = ogPath + " - " + str(counter)
+        counter += 1
 
     return currPath
 

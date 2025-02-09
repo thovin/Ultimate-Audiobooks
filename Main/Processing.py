@@ -61,6 +61,7 @@ def processFile(file):
     track = mutagen.File(file, easy=True)
     type = Path(file).suffix.lower()
     md = Metadata   #need parends after metadata for constructor call?
+    # md.bookPath = Path(settings.output)
     md.bookPath = settings.output
 
 
@@ -69,7 +70,7 @@ def processFile(file):
         md = fetchMetadata(file, track)
 
         #TODO set md.bookPath according to rename
-        md.bookPath = settings.output + f"\{md.author}\{md.title}"
+        md.bookPath = settings.output + f"/{md.author}/{md.title}"   #TODO forward slashes ok on windows too?
         log.debug(f"Making directory {md.bookPath} if not exists")
         Path(md.bookPath).mkdir(parents = True, exist_ok = True)
 
