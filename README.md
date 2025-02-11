@@ -2,7 +2,17 @@ This WIP program is intended to simplify processing audiobook files. <ins>I stro
 
 If **fetch** is passed, books will be moved to &lt;outpath&gt;/&lt;author&gt;/&lt;title&gt;. Otherwise they will be moved to &lt;outpath&gt;. This will be customizable in the future.
 
-I have not tested this program on a clean machine yet. It definitely has a dependency of ffmpeg for the **convert** option. There may be additional dependencies I've forgotten.
+Dependancies:
+- ffmpeg
+- python libraries:
+    - pydub
+    - mutagen
+    - requests
+    - bs4
+    - pyperclip
+    - psutil
+
+Linux based systems will additionally need a copy/paste mechanism, such as xclip or xselect.
 
 &nbsp;
 
@@ -50,17 +60,17 @@ I have not tested this program on a clean machine yet. It definitely has a depen
     - NOTE: even if this flag is not passed, numbers will still appended to filenames as needed to prevent overwriting existing book files in the destination
 - Recursively fetch books (-RF, --recurseFetch) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse input folder and all subfolders, processing all audio files as books.
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one may be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
 - Recursively combine chapter books (-RC, --recurseCombine) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse subfolders of input, combining all audio files in a given directory. Combination algorithm will sort books based on track number in metadata if available, and numerical values in the filename if not.
     - NOTE: input folder itself is ignored in this operation
     - NOTE: if **convert** is not passed, the filetype of the combined book will be that of the chapters
     - NOTE: solitary files will be processed without any combination operation, allowing this to work on a mixed library of whole and chapter books in separate directories. However, **whole books found in the same directory will be combined.**
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one may be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
     - **NOTE: This feature is** **partially implemented. Results may vary!**
 - Recursively preserve chapter books (-RP, --recursePreserve) // arguments = N/A, default = false, EXCLUSIVE
     - Recursively traverse subfolders of input, processing all files in a directory as if they are the chapters of a book. This will NOT combine the files.
-    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one must be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
+    - NOTE: recursive fetch, combine, and preserve are <ins>exclusive.</ins> Only one may be selected! If none are selected only books in the root directory will be processed; all subdirectories will be ignored.
     - <ins>NOTE: because the chapters are not combined, it is strongly recommended to use **fetch!**</ins> If **fetch** is not called, all chapter files will end up lumped together in the output folder. This behavior will likely be corrected in future through use of **rename**.
     - **NOTE: this feature has not been implemented**
 - Save settings (-S, --save) // arguments = N/A, default = false

@@ -522,7 +522,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         log.debug("Converting MP4 to M4B")
 
         if settings.move:
-            return file.rename(file.with_suffix('.m4b'))
+            return file.rename(newPath.with_suffix('.m4b'))
         else:
             return shutil.copy(file, newPath.with_suffix('.m4b'))
 
