@@ -59,7 +59,7 @@ def getTitle(track):
     log.debug("Extracting title from track")
 
     if isinstance(track, mp3.EasyMP3):
-        if track['title'] != "":    #TODO keyerror processing foundryside
+        if track['title'] != "":    #TODO keyerror processing foundryside. I think it doesn't actually have a title, which I didn't know was possible. Apparently filename doesn't default to title.
             return track['title'][0]
         elif track['album'] != "":
             return track['album'][0]
@@ -478,11 +478,11 @@ def loadSettings():
 
 def getAudioFiles(folderPath, batch = -1):
     files = []
-    files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
-    files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
-    files.extend(list(folderPath.glob("*.flac")))  #flac
-    files.extend(list(folderPath.glob("*.wma")))  #wma
-    files.extend(list(folderPath.glob("*.wav")))  #wav
+    files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
+    files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
+    files.extend(list(folderPath.rglob("*.flac")))  #flac
+    files.extend(list(folderPath.rglob("*.wma")))  #wma
+    files.extend(list(folderPath.rglob("*.wav")))  #wav
 
     if batch == -1 or len(files) < batch:
         return files
