@@ -207,7 +207,7 @@
         },
 
         {
-            //Expected outcome: OPD file is created
+            //Expected outcome: OPF file is created
             "name": "create test",
             "type": "debugpy",
             "request": "launch",
@@ -217,7 +217,7 @@
                 "--input", "/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/input",
                 "--batch", "2",
                 "--fetch", "both",
-                "--create", "OPD",
+                "--create", "OPF",
                 "--quick"
             ]
         },
@@ -272,7 +272,7 @@
 
         {
             //Expected outcome: up to 10 books in and only in the root folder have their metadata fetched and cleaned. books are then converted to .m4b as needed and moved to "the chosen output".
-            //Additionally, an OPD metadata file is created
+            //Additionally, an OPF metadata file is created
             "name": "single level practical",
             "type": "debugpy",
             "request": "launch",
@@ -285,7 +285,7 @@
                 "--move",
                 "--clean",
                 "--convert",
-                "--create", "OPD",
+                "--create", "OPF",
                 "--quick"
             ]
         },
@@ -304,8 +304,8 @@
                 "--move",
                 "--clean",
                 "--convert",
-                "--create", "OPD",
-                "recurseFetch",
+                "--create", "OPF",
+                "--recurseFetch",
                 "--quick"
             ]
         },
