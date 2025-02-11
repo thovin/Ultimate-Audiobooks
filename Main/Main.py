@@ -56,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("-B", "--batch", type=int, default = 10) #batch size
     parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
     parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
-    parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPD"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
+    parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPF"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
     parser.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default
     parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
     parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web

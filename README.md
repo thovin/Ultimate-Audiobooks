@@ -27,8 +27,8 @@ Linux based systems will additionally need a copy/paste mechanism, such as xclip
 - Convert to M4B (-CV, --convert) // arguments: N/A, default = false, **dependencies: ffmpeg**
     - Convert all non-M4B files to M4B. <ins>**Requires ffmpeg installed on the system!**</ins>
     - NOTE: if copying (**move** is not passed) a new M4B file will instead be created
-- Create metadata files (-CR, --create) // arguments: \["INFOTEXT", "OPD"\], default = N/A, **dependencies: Fetch**
-    - Creates an infotext or OPD file in destination folder. This can be useful for libraries that use these files for metadata, such as audiobookshelf.
+- Create metadata files (-CR, --create) // arguments: \["INFOTEXT", "OPF"\], default = N/A, **dependencies: Fetch**
+    - Creates an infotext or OPF file in destination folder. This can be useful for libraries that use these files for metadata, such as audiobookshelf.
 - Default (-D, --default) // arguments: N/A, default = false
     - Erases saved settings, setting any arguments not called on this execution to their default values.
     - **NOTE: save/load/default settings features subject to change**
