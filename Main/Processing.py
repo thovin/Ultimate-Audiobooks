@@ -152,7 +152,7 @@ def singleLevelBatch(infolder = None):
 def recursivelyFetchBatch():
     log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
     infolder = Path(settings.input)
-    files = getAudioFiles(infolder, settings.batch)
+    files = getAudioFiles(infolder, settings.batch, True)
 
     for file in files:
         processFile(file)

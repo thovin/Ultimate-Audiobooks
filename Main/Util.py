@@ -476,13 +476,21 @@ def loadSettings():
     settings = getSettings()
 
 
-def getAudioFiles(folderPath, batch = -1):
+def getAudioFiles(folderPath, batch = -1, recurse = False):
     files = []
-    files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
-    files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
-    files.extend(list(folderPath.rglob("*.flac")))  #flac
-    files.extend(list(folderPath.rglob("*.wma")))  #wma
-    files.extend(list(folderPath.rglob("*.wav")))  #wav
+
+    if recurse:
+        files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
+        files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
+        files.extend(list(folderPath.rglob("*.flac")))  #flac
+        files.extend(list(folderPath.rglob("*.wma")))  #wma
+        files.extend(list(folderPath.rglob("*.wav")))  #wav
+    else:
+        files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
+        files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
+        files.extend(list(folderPath.glob("*.flac")))  #flac
+        files.extend(list(folderPath.glob("*.wma")))  #wma
+        files.extend(list(folderPath.glob("*.wav")))  #wav
 
     if batch == -1 or len(files) < batch:
         return files
