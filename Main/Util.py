@@ -58,45 +58,30 @@ class Conversion:
 def getTitle(track):
     log.debug("Extracting title from track")
 
-    if isinstance(track, mp3.EasyMP3):
-        if track['title'] != "":    #TODO keyerror processing foundryside. I think it doesn't actually have a title, which I didn't know was possible. Apparently filename doesn't default to title.
+    if isinstance(track, mp3.EasyMP3) or isinstance(track, easymp4.EasyMP4):
+        if 'title' in track and track['title'] != "":
             return track['title'][0]
-        elif track['album'] != "":
+        elif 'album' in track and track['album'] != "":
             return track['album'][0]
         else:
-            return False
-    elif isinstance(track, easymp4.EasyMP4):
-        try:
-            if track['title'] != "":
-                return track['title'][0]
-        except KeyError:
-            pass
-
-        try:
-            if track['album'] != "":
-                return track['album'][0]
-            else:
-                return ""
-        except KeyError:
+            log.debug("No title found. Returning empty string")
             return ""
     elif isinstance(track, mp3.MP3):
-        if track['TIT2'] != "":
+        if 'TIT2' in track and track['TIT2'] != "":
             return track['TIT2']
-            # return track['TIT2'][0]
-        elif track['TALB'] != "":
+        elif 'TALB' in track and track['TALB'] != "":
             return track['TALB']
-            # return track['TALB'][0]
         else:
-            return False
+            log.debug("No title found. Returning empty string")
+            return ""
     elif isinstance(track, mp4.MP4):
-        if track['\xa9nam'] != "":
+        if '\xa9nam' in track and track['\xa9nam'] != "":
             return track['\xa9nam']
-            # return track['\xa9nam'][0]
-        elif track['\xa9alb'] != "":
+        elif '\xa9alb' in track and track['\xa9alb'] != "":
             return track['\xa9alb']
-            # return track['\xa9alb'][0]
         else:
-            return False
+            log.debug("No title found. Returning empty string")
+            return ""
 
     else:
         log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get title")
@@ -106,73 +91,44 @@ def getTitle(track):
 def getAuthor(track):
     log.debug("Extracting author from track")
 
-    if isinstance(track, mp3.EasyMP3):
-        try:
-            if track['artist'] != "":
-                return track['artist'][0]
-        except KeyError:
-            pass
-        try:
-            if track['composer'] != "":
-                return track['composer'][0]
-        except KeyError:
-            pass
-        try:
-            if track['albumartist'] != "":
-                return track['albumartist'][0]
-        except KeyError:
-            pass
-        try:
-            if track['lyricist'] != "":
-                return track['lyricist'][0]
-        except KeyError:
+    if isinstance(track, mp3.EasyMP3) or isinstance(track, easymp4.EasyMP4):
+        if 'artist' in track and track['artist'] != '':
+            return track['artist'][0]
+        elif 'composer' in track and track['composer'] != "":
+            return track['composer'][0]
+        elif 'albumartist' in track and track['albumartist'] != "":
+            return track['albumartist'][0]
+        elif 'lyricist' in track and track['lyricist'] != "":
+            return track['lyricist'][0]
+        else:
+            log.debug("No author found. Returning empty string")
             return ""
-
-    elif isinstance(track, easymp4.EasyMP4):
-        try:
-            if track['artist'] != "":
-                return track['artist'][0]
-        except KeyError:
-            pass
-        try:
-            if track['composer'] != "":
-                return track['composer'][0]
-        except KeyError:
-            pass
-        try:
-            if track['albumartist'] != "":
-                return track['albumartist'][0]
-        except KeyError:
+    elif isinstance(track, mp3.MP3):
+        if 'TPE1' in track and track['TPE1'] != "":
+            return track['TPE1']
+        elif 'TCOM' in track and track['TCOM'] != "":
+            return track['TCOM']
+        elif 'TPE2' in track and track['TPE2'] != "":
+            return track['TPE2']
+        elif 'TEXT' in track and track['TEXT'] != "":
+            return track['TEXT']
+        else:
+            log.debug("No author found. Returning empty string")
             return ""
-
-    elif isinstance(track, mp3.MP3): #will this throw errors like the easymp3 solution?
-        if track['TPE1'] != "":
-                return track['TPE1']
-                # return track['TPE1'][0]
-        if track['TCOM'] != "":
-                return track['TCOM']
-                # return track['TCOM'][0]
-        if track['TPE2'] != "":
-                return track['TPE2']
-                # return track['TPE2'][0]
-        if track['TEXT'] != "":
-                return track['TEXT']
-                # return track['TEXT'][0]
-
-    elif isinstance(track, mp4.MP4): #will this throw errors like the easymp4 solution?
-        if track['\xa9ART'] != "":
-                return track['\xa9ART']
-                # return track['\xa9ART'][0]
-        if track['soco'] != "":
-                return track['soco'][0]
-                # return track['soco']
-        if track['aART'] != "":
-                return track['aART']
-                # return track['aART'][0]
-
+    elif isinstance(track, mp4.MP4):
+        if '\xa9ART' in track and track['\xa9ART'] != "":
+            return track['\xa9ART']
+        elif 'soco' in track and track['soco'] != "":
+            return track['soco']
+        elif 'aART' in track and track['aART'] != "":
+            return track['aART']
+        else:
+            log.debug("No author found. Returning empty string")
+            return ""
     else:
         log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get author")
         return ""
+    
     
 
 def GETpage(url, md):
