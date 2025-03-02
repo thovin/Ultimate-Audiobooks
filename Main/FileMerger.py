@@ -65,12 +65,17 @@ def orderByTitle(tracks):
 def mergeBook(folderPath, outPath = False):  #This assumes chapter files are always mp3
     #TODO log
     log.debug("Begin merging chapters in " + folderPath.name)
-    files = list(folderPath.glob("*.mp3"))
+    # files = list(folderPath.glob("*.mp3"))
+    files = list(folderPath.glob("*.mp*"))
     tracks = []
     pieces = []
     hasMultipleDisks = False
 
+    if len(files) < 1:
+        files = list(folderPath.glob("*.m4*"))
+
     #TODO this assumes all files are also tracks, BROKEN
+    #TODO special characters completely break this
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)

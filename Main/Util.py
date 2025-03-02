@@ -399,6 +399,7 @@ def fetchMetadata(file, track) -> Metadata:
         time.sleep(1)
         currClipboard = pyperclip.paste()
 
+        # TODO catch exceptions for bad http responses (404, etc) and skip. also, try to tweak audible podcast links?
         if currClipboard == tempClipboard:
             continue
         elif currClipboard.upper() == "SKIP":
