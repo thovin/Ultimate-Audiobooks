@@ -43,7 +43,12 @@ def processConversions():
     numWorkers = settings.workers
     if numWorkers == -1:
         numWorkers = math.floor(calculateWorkerCount())
-        log.info(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
+
+        if numWorkers > 0:
+            log.info(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
+        else:
+            numWorkers = 1
+            log.info("Number of works not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
 
     with ProcessPoolExecutor(max_workers=numWorkers) as controller:
         # futures = controller.map(processConversion, conversions, settings)
