@@ -52,7 +52,8 @@ def orderByTitle(tracks):
         if -1 in trackMap:
             #TODO skip this book
             break   #no more numbers, no order beginning in 1
-        elif ordered[0] != 1 or ordered[1] != 2: #check first two in case we get 1, 1, 1, ...
+        # elif ordered[0] != 1 or len(ordered) < 2 or ordered[1] != 2: #check first two in case we get 1, 1, 1, ...
+        elif ordered[0] != 1 or len(ordered) < 2: #check first two in case we get 1, 1, 1, ...
             number += 1
             continue
         else:
