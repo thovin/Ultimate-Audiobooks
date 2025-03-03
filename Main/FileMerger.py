@@ -10,11 +10,16 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 def findTitleNum(title, whichNum) -> int:
+    title = title.upper()
     try:
         return int(re.findall(r'\d+', title)[whichNum])  #find all numbers, return specified
     except IndexError:
-        #TODO account for intro, prologue, etc
-        return -1   #no more numbers in title
+        if any(word in title for word in ["intro".upper(), "prologue".upper()]):
+            return 1
+        if any(word in title for word in ["outro".upper(), "epilogue".upper(), "credits".upper()]):
+            return 999
+        else:
+            return -1   #no more numbers in title
 
 
 def orderByTrackNumber(tracks, hasMultipleDisks):
@@ -39,21 +44,19 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
 
 
 def orderByTitle(tracks):
-    number = 1
+    number = 0
 
     while True:
         trackMap = {}
         for track in tracks:
-            trackMap[findTitleNum(track.filename, number)] = track
-
+            trackMap[findTitleNum(Path(track.filename).stem, number)] = track
         ordered = sorted(trackMap.keys())
 
         # if trackMap[-1]:
         if -1 in trackMap:
             #TODO skip this book
             break   #no more numbers, no order beginning in 1
-        # elif ordered[0] != 1 or len(ordered) < 2 or ordered[1] != 2: #check first two in case we get 1, 1, 1, ...
-        elif ordered[0] != 1 or len(ordered) < 2: #check first two in case we get 1, 1, 1, ...
+        elif ordered[0] != 1 or len(ordered) < 2: #check for 1, 1, 1, ...
             number += 1
             continue
         else:
