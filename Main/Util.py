@@ -461,7 +461,9 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
     log.info("Converting " + file.name + " to M4B")
-    newPath = Path(md.bookPath + "/" + file.with_suffix('.mp4').name)   #TODO forward slashes ok on windows?
+    # newPath = Path(md.bookPath + "/" + file.with_suffix('.mp4').name)   #TODO forward slashes ok on windows?
+    # newPath = Path(md.bookPath + "/" + md.title + ".m4b")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+    newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec', 'copy', #copy audio streams instead of re-encoding
@@ -662,7 +664,9 @@ def combineAndFindChapters(startPath, outPath, counter, root):
 
 def getUniquePath(book, outpath):
     counter = 1
-    ogPath = outpath + "/" + book.name  #forward slash ok on windows?
+    #TODO temp change while working on rename
+    # ogPath = outpath + "/" + book.name  #forward slash ok on windows?
+    ogPath = outpath + "/" + book  #forward slash ok on windows?
     currPath = ogPath
     while os.path.exists(currPath):
         currPath = ogPath + " - " + str(counter)

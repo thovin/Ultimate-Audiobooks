@@ -37,7 +37,6 @@ def processConversion(c, settings): #This is run through ProcessPoolExecutor, wh
 
 
 def processConversions():
-    #TODO explore converting in parallel?
     log.info("Processing conversions")
 
     numWorkers = settings.workers
@@ -104,7 +103,9 @@ def processFile(file):
     
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
-        file.rename(getUniquePath(file, md.bookPath))
+        # file.rename(getUniquePath(file, md.bookPath))
+        # TODO temporarily use title while working on rename
+        file.rename(getUniquePath(md.title, md.bookPath))
         # file.rename(md.bookPath + file.name)
         # shutil.move(file, md.bookPath)
     else:
