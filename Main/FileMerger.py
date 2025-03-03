@@ -66,10 +66,8 @@ def orderByTitle(tracks):
             return tracksOut
     
 
-def mergeBook(folderPath, outPath = False):  #This assumes chapter files are always mp3
-    #TODO log
+def mergeBook(folderPath, outPath = False):
     log.debug("Begin merging chapters in " + folderPath.name)
-    # files = list(folderPath.glob("*.mp3"))
     files = list(folderPath.glob("*.mp*"))
     tracks = []
     pieces = []
@@ -78,8 +76,11 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
     if len(files) < 1:
         files = list(folderPath.glob("*.m4*"))
 
-    #TODO this assumes all files are also tracks, BROKEN
+    log.debug(str(len(files)) + " chapters detected")
+
+    #TODO when --rename is working, apply here
     #TODO special characters completely break this
+    #TODO suppress ffmpeg output?
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)
@@ -100,24 +101,12 @@ def mergeBook(folderPath, outPath = False):  #This assumes chapter files are alw
 
     log.debug("Pieces ordered")
 
-    #TODO rename master file
     #TODO use Mutagen library to add chapter markers in metadata, for mp4 file. Manually convert to m4b in post.
-    # master = AudioSegment.empty()
-    # ms = 0
-    # chapters = []
-    # for stream in streams:
-    #     master.append(stream)
-    #     ms += len(stream)
-    #     chapters.append(ms)
 
     if outPath:
-        # newFilepath = outPath / 'output.mp3'   
-        # newFilepath = outPath / folderPath.name   
-        newFilepath = outPath / (folderPath.name + " - " + files[0].name)   #TODO stick with parent folder name or find a more surefire way to get the title?
+        newFilepath = outPath / (folderPath.name + " - " + files[0].name)
     else:
-        # newFilepath = folderPath / 'output.mp3'   
-        # newFilepath = folderPath / folderPath.name   #TODO fix name
-        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)   #TODO decide name
+        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)
 
 
 
