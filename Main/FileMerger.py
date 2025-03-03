@@ -1,4 +1,3 @@
-# from pydub import AudioSegment
 from itertools import islice
 import mutagen
 import re
@@ -6,6 +5,7 @@ import subprocess
 import logging
 import tempfile
 from pathlib import Path
+import os
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def orderByTitle(tracks):
             return tracksOut
     
 
-def mergeBook(folderPath, outPath = False):
+def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin merging chapters in " + folderPath.name)
     files = list(folderPath.glob("*.mp*"))
     tracks = []
@@ -132,10 +132,15 @@ def mergeBook(folderPath, outPath = False):
     try:
         subprocess.run(cmd, check=True)
 
+        if move:
+            with open(tempFilepath, 'r') as t:
+                for line in t:
+                    os.remove(line[5:].strip().strip('\''))
+
     except subprocess.CalledProcessError as e:
         return #TODO
     
-    Path(tempFilepath).unlink()
+    os.remove(tempFilepath)
 
     
     #TODO return combined file AND chapter info

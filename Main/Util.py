@@ -652,7 +652,7 @@ def combineAndFindChapters(startPath, outPath, counter, root):
         files[0].rename(outPath / f"{files[0].name}")
     elif len(files) > 1:
         counter += 1
-        FileMerger.mergeBook(startPath, outPath)
+        FileMerger.mergeBook(startPath, outPath, settings.move)
 
     return counter
 
