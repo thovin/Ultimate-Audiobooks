@@ -69,18 +69,58 @@ def orderByTitle(tracks):
 def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin merging chapters in " + folderPath.name)
     files = list(folderPath.glob("*.mp*"))
-    tracks = []
-    pieces = []
     hasMultipleDisks = False
 
     if len(files) < 1:
         files = list(folderPath.glob("*.m4*"))
+
+    if outPath:
+        newFilepath = outPath / (folderPath.name + " - " + files[0].name)
+    else:
+        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)
 
     log.debug(str(len(files)) + " chapters detected")
 
     #TODO when --rename is working, apply here
     #TODO special characters completely break this
     #TODO suppress ffmpeg output?
+    #TODO process merges at end like conversions?
+    #TODO improve processing for multiple disks not in metadata
+
+    pieces = orderFiles(files)
+    tempConcatFilePath, tempChapFilePath = createTempFiles(pieces, folderPath)
+
+    cmd = ['ffmpeg', 
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', tempConcatFilePath,
+        '-i', tempChapFilePath, "-map_metadata", "1",
+        '-codec', 'copy',    #copy audio streams instead of re-encoding
+        '-vn',   #disable video
+        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
+        ]
+    
+    log.debug("Begin combining")
+    try:
+        subprocess.run(cmd, check=True)
+
+        if move:
+            with open(tempConcatFilePath, 'r') as t:
+                for line in t:
+                    os.remove(line[5:].strip().strip('\''))
+
+    except subprocess.CalledProcessError as e:
+        return #TODO
+    
+    os.remove(tempConcatFilePath)
+    os.remove(tempChapFilePath)
+
+    return newFilepath
+
+def orderFiles(files):
+    pieces = []
+    tracks = []
+
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)
@@ -100,48 +140,33 @@ def mergeBook(folderPath, outPath = False, move = False):
         pieces = orderByTitle(tracks)
 
     log.debug("Pieces ordered")
+    return pieces
 
-    #TODO use Mutagen library to add chapter markers in metadata, for mp4 file. Manually convert to m4b in post.
-
-    if outPath:
-        newFilepath = outPath / (folderPath.name + " - " + files[0].name)
-    else:
-        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)
-
-
-
+def createTempFiles(pieces, folderPath):
     log.debug("Write files to tempConcatFileList")
-    tempFilepath = ""
-    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempFile:
-        for p in pieces:
-            tempFile.write(f"file '{p.filename}'\n")
+    tempConcatFilepath = ""
+    tempChapFilepath = ""
+    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempConcatFile, \
+    tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempChapFile:
+        #TODO skip books when this errors instead of crashing whole script?
+        runningTime = 0
+        chapCount = 1
+        tempChapFile.write(";FFMETADATA1\n")
 
-        tempFilepath = tempFile.name
-        
+        for p in pieces: #p = mutagen easyMP*
+            tempConcatFile.write(f"file '{p.filename}'\n")
 
-    cmd = ['ffmpeg', 
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', tempFilepath,
-        '-codec', 'copy',    #copy audio streams instead of re-encoding
-        '-vn',   #disable video
-        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
-        ]
-    
-    log.debug("Begin combining")
-    try:
-        subprocess.run(cmd, check=True)
+            tempChapFile.write("[CHAPTER]\n")
+            tempChapFile.write("TIMEBASE=1/1000\n")
+            tempChapFile.write(f"START={runningTime}\n")
+            runningTime += p.info.length * 1000
+            tempChapFile.write(f"END={runningTime}\n")
+            tempChapFile.write(f"title=Chapter {chapCount}\n\n")
+            chapCount += 1
 
-        if move:
-            with open(tempFilepath, 'r') as t:
-                for line in t:
-                    os.remove(line[5:].strip().strip('\''))
+        tempConcatFilepath = tempConcatFile.name
+        tempChapFilepath = tempChapFile.name
 
-    except subprocess.CalledProcessError as e:
-        return #TODO
-    
-    os.remove(tempFilepath)
 
-    
-    #TODO return combined file AND chapter info
-    return newFilepath
+
+    return tempConcatFilepath, tempChapFilepath
