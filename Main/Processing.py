@@ -2,6 +2,7 @@ import logging
 from Settings import getSettings
 from pathlib import Path
 from Util import *
+from FileMerger import combineAndFindChapters
 import os
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
@@ -50,21 +51,22 @@ def processConversions():
             log.info("Number of works not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
 
     with ProcessPoolExecutor(max_workers=numWorkers) as controller:
-        # futures = controller.map(processConversion, conversions, settings)
-        # futures = controller.map(lambda conversion: processConversion(conversion, settings), conversions)
-        futures = []
-
-        for c in conversions:
-            futures.append(controller.submit(processConversion, c, settings))
+        futures = [controller.submit(processConversion, c, settings) for c in conversions]
 
         wait(futures)
+
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                log.error(e)    #TODO proper message
 
 
 def processFile(file):
     log.info(f"Processing {file.name}")
     track = mutagen.File(file, easy=True)
     type = Path(file).suffix.lower()
-    md = Metadata   #need parends after metadata for constructor call?
+    md = Metadata()
     # md.bookPath = Path(settings.output)
     md.bookPath = settings.output
 
@@ -105,7 +107,8 @@ def processFile(file):
         log.info("Moving " + file.name + " to " + md.bookPath)
         # file.rename(getUniquePath(file, md.bookPath))
         # TODO temporarily use title while working on rename
-        file.rename(getUniquePath(md.title, md.bookPath))
+        # file.rename(getUniquePath(md.title, md.bookPath))
+        file.rename(getUniquePath(file.name, md.bookPath))
         # file.rename(md.bookPath + file.name)
         # shutil.move(file, md.bookPath)
     else:
@@ -155,7 +158,7 @@ def singleLevelBatch(infolder = None):
     log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
 
 
-def recursivelyFetchBatch():
+def recursivelyFetchBatch():    #Since the only difference is passing true to getAudioFiles, I could probably fold this into another batch
     log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
     infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch, True)

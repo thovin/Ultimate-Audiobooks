@@ -2,6 +2,7 @@ import argparse
 import Settings
 import Util
 import Processing
+import FileMerger
 import logging as log
 from pathlib import Path
 import sys
@@ -24,6 +25,7 @@ def main(args):
     Settings.setSettings(settings)
     Util.loadSettings()
     Processing.loadSettings()
+    FileMerger.loadSettings()
 
     log.debug("Creating output directory if not exists: " + settings.output)
     Path(settings.output).mkdir(parents = True, exist_ok = True)

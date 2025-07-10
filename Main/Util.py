@@ -12,11 +12,11 @@ import pyperclip
 import subprocess
 import shutil
 import xml.etree.ElementTree as ET
-import FileMerger
 import os
 import psutil
 import platform
 import urllib.parse
+import re
 
 log = logging.getLogger(__name__)
 settings = None
@@ -428,10 +428,6 @@ def fetchMetadata(file, track) -> Metadata:
     return md
 
 
-def loadSettings():
-    global settings
-    settings = getSettings()
-
 
 def getAudioFiles(folderPath, batch = -1, recurse = False):
     files = []
@@ -461,9 +457,22 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
     log.info("Converting " + file.name + " to M4B")
+
+    #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
     # newPath = Path(md.bookPath + "/" + file.with_suffix('.mp4').name)   #TODO forward slashes ok on windows?
-    # newPath = Path(md.bookPath + "/" + md.title + ".m4b")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
-    newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+    if md.title:
+        # newPath = Path(md.bookPath + "/" + md.title + ".m4b")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+    else:
+        newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+
+    if settings.move:
+        file = sanitizeFile(file)
+    else:
+        folder, filename = os.path.split(file)
+        copyFile = shutil.copy(file, os.path.join(folder, f"COPY{filename}"))
+        file = sanitizeFile(copyFile)
+
     cmd = ['ffmpeg',
            '-i', file,  #input file
            '-codec', 'copy', #copy audio streams instead of re-encoding
@@ -476,8 +485,10 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         try:
             subprocess.run(cmd, check=True)
 
-            if settings.move:
-                file.unlink()   #delete original file
+            # if settings.move:
+            #     file.unlink()   #delete original file
+
+            file.unlink() #if not settings.move, a copy is created which this deletes. Nondestructive.
 
             return newPath.rename(newPath.with_suffix('.m4b'))
         except subprocess.CalledProcessError as e:
@@ -488,10 +499,12 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     elif type == '.mp4':
         log.debug("Converting MP4 to M4B")
 
-        if settings.move:
-            return file.rename(newPath.with_suffix('.m4b'))
-        else:
-            return shutil.copy(file, newPath.with_suffix('.m4b'))
+        # if settings.move:
+        #     return file.rename(newPath.with_suffix('.m4b'))
+        # else:
+        #     return shutil.copy(file, newPath.with_suffix('.m4b'))
+
+        return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
 
 
 def cleanMetadata(track, md):
@@ -623,46 +636,10 @@ def createOpf(md):
         tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
             
 
-def combineAndFindChapters(startPath, outPath, counter, root):
-    #filepaths or path objects?
-    #outpath is a temp dir, no need for naming
-    #if single books are found they are returned, so this works for mixed whole and chapter books 
 
-    subfolders = [path for path in startPath.glob('*') if path.is_dir()]
-    if outPath in subfolders:
-        subfolders.remove(outPath)    #prevents Ultimate temp from being processed
-    for folder in subfolders:
-        if counter <= settings.batch:
-            if settings.move:
-                counter = combineAndFindChapters(folder, outPath, counter, root)
-            else:
-                pass    #TODO
-        else:
-            return counter
-        
-
-
-    #TODO this doesn't work when copying
-    #TODO delete chapter files and/or folder after processing. Make sure you don't accidently kill subs.
-    files = getAudioFiles(startPath)
-    if files == -1 or startPath == root:    #ignore files in the root folder
-        pass
-    elif len(files) == 1:
-        counter += 1
-        files[0].rename(outPath / f"{files[0].name}")
-    elif len(files) > 1:
-        counter += 1
-        FileMerger.mergeBook(startPath, outPath, settings.move)
-
-    return counter
-
-    '''
-    If -M, nuke emptied folder. Ensure there are no unchecked subfolders first!
-    Either way, combined files should be put into outpath
-
-    '''
 
 def getUniquePath(book, outpath):
+    #TODO this is bypassed when converting
     counter = 1
     #TODO temp change while working on rename
     # ogPath = outpath + "/" + book.name  #forward slash ok on windows?
@@ -681,3 +658,35 @@ def calculateWorkerCount():
     availableMemory = psutil.virtual_memory().available / (1024 ** 3)   #converts to Gb
 
     return numCores / 2 if numCores / 2 < availableMemory - 2 else availableMemory - 2
+
+def sanitizeFile(file):
+    file = Path(file)
+    # name = os.path.basename(file)
+    # name = file.stem
+    name = file.name
+    parent = str(file.parent)
+    # name = Path(file).stem
+    #The users dirs are checked at init, so it should be safe to affect any with a special char at this point
+    subs = {
+        "&": "and"
+    }
+
+    for og, new in subs.items():
+        name = name.replace(og, new)
+
+    name = re.sub(r'[<>:"/\\|?*\']', '', name)
+    # name = re.sub(r'[^\x00-\x7F]+', '', name) #non-ASCII characters, in case they end up being trouble
+
+    newParent = re.sub(r'[<>:"\\|?*\']', '', parent)
+    Path(newParent).mkdir(parents = True, exist_ok = True)
+
+    # newPath = os.path.join(os.path.dirname(file), name)
+    # newPath = Path(file).with_name(name)
+    # newPath = file.with_name(name)
+    newPath = Path(newParent).with_name(name)
+
+    if file == newPath:
+        return file
+    else:
+        return file.rename(newPath)
+

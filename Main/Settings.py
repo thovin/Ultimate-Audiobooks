@@ -2,6 +2,8 @@ import json
 import logging
 from pathlib import Path
 import sys
+import re
+import os
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ class Settings:
         if not self.quick:
             self.confirm()
 
-        
+        self.checkFolders()
 
         log.debug("Settings parsed")
 
@@ -67,6 +69,21 @@ class Settings:
                 log.info("User has selected no when confirming settings. Exiting...")
                 sys.exit()
 
+    def checkFolders(self): #TODO this is really only a problem when using ffmpeg, I think. Cut this check and/or only check when going to use it and only check in those functions?
+        specials = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
+        inDirs = self.input.split(os.sep)
+        outDirs = self.output.split(os.sep)
+
+        for folder in inDirs:
+            if specials.search(folder):
+                log.error("ERROR: special character detected in directory: " + str(folder) + \
+                    ". Special characters can cause unexpected behavior and are not allowed. Aborting...")
+                sys.exit(1)
+        for folder in outDirs:
+            if specials.search(folder):
+                log.error("ERROR: special character detected in directory: " + str(folder) + \
+                    ". Special characters can cause unexpected behavior and are not allowed. Aborting...")
+                sys.exit(1)
         
         
     

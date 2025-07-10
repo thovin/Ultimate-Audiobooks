@@ -1,3 +1,4 @@
+from Settings import getSettings
 from itertools import islice
 import mutagen
 import re
@@ -6,8 +7,14 @@ import logging
 import tempfile
 from pathlib import Path
 import os
+from Util import sanitizeFile, getAudioFiles
 
 log = logging.getLogger(__name__)
+settings = None
+
+def loadSettings():
+    global settings
+    settings = getSettings()
 
 def findTitleNum(title, whichNum) -> int:
     title = title.upper()
@@ -82,12 +89,22 @@ def mergeBook(folderPath, outPath = False, move = False):
     log.debug(str(len(files)) + " chapters detected")
 
     #TODO when --rename is working, apply here
-    #TODO special characters completely break this
-    #TODO suppress ffmpeg output?
+    #TODO suppress ffmpeg output? If I multithread merges output will be hidden by default, I think.
     #TODO process merges at end like conversions?
     #TODO improve processing for multiple disks not in metadata
 
+    
+    for i in range(len(files)):
+        if settings.move:
+            files[i] = sanitizeFile(files[i])
+        else:
+            path, name = os.path.split(files[i])
+            copyFile = shutil.copy(files[i], os.path.join(path, f"COPY{name}"))
+            files[i] = sanitizeFile(copyFile)
+    
     pieces = orderFiles(files)
+        
+    # TODO When sanitizing chapter files, worth trying to keep the original name in chapter metadata?
     tempConcatFilePath, tempChapFilePath = createTempFiles(pieces, folderPath)
 
     cmd = ['ffmpeg', 
@@ -170,3 +187,43 @@ def createTempFiles(pieces, folderPath):
 
 
     return tempConcatFilepath, tempChapFilepath
+
+
+def combineAndFindChapters(startPath, outPath, counter, root):
+    #filepaths or path objects?
+    #outpath is a temp dir, no need for naming
+    #if single books are found they are returned, so this works for mixed whole and chapter books 
+
+    subfolders = [path for path in startPath.glob('*') if path.is_dir()]
+    if outPath in subfolders:
+        subfolders.remove(outPath)    #prevents Ultimate temp from being processed
+    for folder in subfolders:
+        if counter <= settings.batch:
+            if settings.move:
+                counter = combineAndFindChapters(folder, outPath, counter, root)
+            else:
+                pass    #TODO
+        else:
+            return counter
+        
+
+
+    #TODO this doesn't work when copying
+    #TODO delete chapter files and/or folder after processing. Make sure you don't accidently kill subs.
+    files = getAudioFiles(startPath)
+    if files == -1 or startPath == root:    #ignore files in the root folder
+        pass
+    elif len(files) == 1:
+        counter += 1
+        files[0].rename(outPath / f"{files[0].name}")
+    elif len(files) > 1:
+        counter += 1
+        mergeBook(startPath, outPath, settings.move)
+
+    return counter
+
+    '''
+    If -M, nuke emptied folder. Ensure there are no unchecked subfolders first!
+    Either way, combined files should be put into outpath
+
+    '''
