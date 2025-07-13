@@ -674,10 +674,10 @@ def sanitizeFile(file):
     for og, new in subs.items():
         name = name.replace(og, new)
 
-    name = re.sub(r'[<>"/\\|?*\']', '', name)
+    name = re.sub(r'[<>"|?*\']', '', name)
     # name = re.sub(r'[^\x00-\x7F]+', '', name) #non-ASCII characters, in case they end up being trouble
 
-    newParent = re.sub(r'[<>"\\|?*\']', '', parent)
+    newParent = re.sub(r'[<>"|?*\']', '', parent)
     Path(newParent).mkdir(parents = True, exist_ok = True)
 
     # newPath = os.path.join(os.path.dirname(file), name)
