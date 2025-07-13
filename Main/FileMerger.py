@@ -36,7 +36,6 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
         tracksDone = 0
         disk = 1
         while tracksDone < len(tracks):
-            # offset = len(chapters)
             offset = tracksDone
             for track in tracks:
                 if track['disknumber'] == disk:
@@ -59,7 +58,6 @@ def orderByTitle(tracks):
             trackMap[findTitleNum(Path(track.filename).stem, number)] = track
         ordered = sorted(trackMap.keys())
 
-        # if trackMap[-1]:
         if -1 in trackMap:
             #TODO skip this book
             break   #no more numbers, no order beginning in 1
@@ -89,7 +87,6 @@ def mergeBook(folderPath, outPath = False, move = False):
     log.debug(str(len(files)) + " chapters detected")
 
     #TODO when --rename is working, apply here
-    #TODO suppress ffmpeg output? If I multithread merges output will be hidden by default, I think.
     #TODO process merges at end like conversions?
     #TODO improve processing for multiple disks not in metadata
 
@@ -114,6 +111,9 @@ def mergeBook(folderPath, outPath = False, move = False):
         '-i', tempChapFilePath, "-map_metadata", "1",
         '-codec', 'copy',    #copy audio streams instead of re-encoding
         '-vn',   #disable video
+        '-hide_banner', #suppress verbose progress output
+        #    '-loglevel error',
+        #    '-loglevel warning',
         newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
         ]
     

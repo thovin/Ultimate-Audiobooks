@@ -12,6 +12,7 @@ import math
 log = logging.getLogger(__name__)
 settings = None
 conversions = []
+skips = []
 
 def loadSettings():
     global settings
@@ -67,7 +68,6 @@ def processFile(file):
     track = mutagen.File(file, easy=True)
     type = Path(file).suffix.lower()
     md = Metadata()
-    # md.bookPath = Path(settings.output)
     md.bookPath = settings.output
 
 
@@ -75,8 +75,11 @@ def processFile(file):
         #existing OPF is ignored in single level batch
         md = fetchMetadata(file, track)
 
+        if md.skip or md.failed:
+            skips.append(file)
+
         #TODO set md.bookPath according to rename
-        md.bookPath = settings.output + f"/{md.author}/{md.title}"   #TODO forward slashes ok on windows too?
+        md.bookPath = settings.output + f"/{md.author}/{md.title}"
         log.debug(f"Making directory {md.bookPath} if not exists")
         Path(md.bookPath).mkdir(parents = True, exist_ok = True)
 
@@ -100,8 +103,6 @@ def processFile(file):
         #TODO
         #again, only apply to copy
         pass
-
-    #TODO fails and skips - skips up top?
     
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
@@ -154,6 +155,11 @@ def singleLevelBatch(infolder = None):
         
     if len(conversions) > 0:
         processConversions()
+
+    if len(skips) > 0:
+        log.info("Books skipped or failed:")
+        for file in skips:
+            log.info(file.name)
 
     log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
 

@@ -366,13 +366,10 @@ def fetchMetadata(file, track) -> Metadata:
     #It's not possible for fetch to be anything other than these, as the argparser would throw an error
     if settings.fetch == "audible":
         searchURL = f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}"
-        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}", new = 2)
     elif settings.fetch == "goodreads":
         searchURL = f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}"
-        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}", new=2)
     elif settings.fetch == "both":
         searchURL = f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}"
-        # webbrowser.open(f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}", new=2)
 
     #some linux OSs don't play nice with webbrowser.open (cries in KDE Neon)
     if platform.system() == "Windows" or platform.system() == "Darwin":
@@ -405,7 +402,6 @@ def fetchMetadata(file, track) -> Metadata:
         elif currClipboard.upper() == "SKIP":
             log.info("Detected skip, skipping book")
             md.skip = True
-            #TODO skip logic
             break
         elif "audible.com" in currClipboard:
             log.debug("Audible URL captured: " + currClipboard)
@@ -459,12 +455,12 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     log.info("Converting " + file.name + " to M4B")
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
-    # newPath = Path(md.bookPath + "/" + file.with_suffix('.mp4').name)   #TODO forward slashes ok on windows?
     if md.title:
-        # newPath = Path(md.bookPath + "/" + md.title + ".m4b")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
-        newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO temp change to title while working on rename
     else:
-        newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO forward slashes ok on windows?    TODO temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
+
+    newPath = getUniquePath(file.name, newPath)
 
     if settings.move:
         file = sanitizeFile(file)
@@ -477,6 +473,9 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-i', file,  #input file
            '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
+           '-hide_banner', #suppress verbose progress output
+        #    '-loglevel error',
+        #    '-loglevel warning',
            newPath]
     
     
@@ -485,12 +484,9 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         try:
             subprocess.run(cmd, check=True)
 
-            # if settings.move:
-            #     file.unlink()   #delete original file
-
             file.unlink() #if not settings.move, a copy is created which this deletes. Nondestructive.
-
             return newPath.rename(newPath.with_suffix('.m4b'))
+
         except subprocess.CalledProcessError as e:
             log.error(f"Conversion failed! Aborting file...")
             md.failed = True
@@ -498,12 +494,6 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
 
     elif type == '.mp4':
         log.debug("Converting MP4 to M4B")
-
-        # if settings.move:
-        #     return file.rename(newPath.with_suffix('.m4b'))
-        # else:
-        #     return shutil.copy(file, newPath.with_suffix('.m4b'))
-
         return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
 
 
@@ -638,12 +628,11 @@ def createOpf(md):
 
 
 
-def getUniquePath(book, outpath):
-    #TODO this is bypassed when converting
+def getUniquePath(fileName, outpath):
     counter = 1
     #TODO temp change while working on rename
-    # ogPath = outpath + "/" + book.name  #forward slash ok on windows?
-    ogPath = outpath + "/" + book  #forward slash ok on windows?
+    # ogPath = outpath + "/" + book.name
+    ogPath = outpath + "/" + fileName
     currPath = ogPath
     while os.path.exists(currPath):
         currPath = ogPath + " - " + str(counter)
@@ -661,11 +650,9 @@ def calculateWorkerCount():
 
 def sanitizeFile(file):
     file = Path(file)
-    # name = os.path.basename(file)
-    # name = file.stem
     name = file.name
     parent = str(file.parent)
-    # name = Path(file).stem
+
     #The users dirs are checked at init, so it should be safe to affect any with a special char at this point
     subs = {
         "&": "and"
@@ -680,9 +667,6 @@ def sanitizeFile(file):
     newParent = re.sub(r'[<>"|?*\']', '', parent)
     Path(newParent).mkdir(parents = True, exist_ok = True)
 
-    # newPath = os.path.join(os.path.dirname(file), name)
-    # newPath = Path(file).with_name(name)
-    # newPath = file.with_name(name)
     newPath = Path(newParent).with_name(name)
 
     if file == newPath:
