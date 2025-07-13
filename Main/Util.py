@@ -518,7 +518,7 @@ def cleanMetadata(track, md):
         track['artist'] = md.narrator
         track['album'] = md.series
         track['date'] = md.publishYear
-        track['discnumber'] = md.volumeNumber
+        track['discnumber'] = int(md.volumeNumber)
         track['author'] = md.author
         track['asin'] = md.asin
         track.ID3.RegisterTXXXKey('description', md.summary)
@@ -548,7 +548,7 @@ def cleanMetadata(track, md):
         track['series'] = md.series
 
         if md.volumeNumber != "":
-            track['discnumber'] = md.volumeNumber
+            track['discnumber'] = int(md.volumeNumber)
 
     elif isinstance(track, mp3.MP3):
         log.debug("Cleaning mp3 metadata")
