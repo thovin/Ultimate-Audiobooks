@@ -15,8 +15,8 @@ ERROR
 CRITICAL
 '''
 #TODO change level before release
-log.basicConfig(level=log.DEBUG, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
-# log.basicConfig(level=log.INFO, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
+# log.basicConfig(level=log.DEBUG, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
+log.basicConfig(level=log.INFO, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
 settings = None
 
 def main(args):
