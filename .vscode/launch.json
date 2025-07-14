@@ -300,6 +300,7 @@
             "args": [
                 "--input", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/input",
                 "--output", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/the chosen output",
+                // "--batch", "3",
                 "--fetch", "both",
                 "--move",
                 "--clean",
@@ -320,6 +321,7 @@
             "args": [
                 "--input", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/input",
                 "--output", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/the chosen output",
+                "--batch", "3",
                 "--fetch", "both",
                 "--move",
                 "--clean",

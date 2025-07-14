@@ -30,7 +30,8 @@ def findTitleNum(title, whichNum) -> int:
 
 
 def orderByTrackNumber(tracks, hasMultipleDisks):
-    chapters = []
+    chapters = [None] * len(tracks)
+    
 
     if hasMultipleDisks:
         tracksDone = 0
@@ -38,13 +39,17 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
         while tracksDone < len(tracks):
             offset = tracksDone
             for track in tracks:
-                if track['disknumber'] == disk:
-                    chapters[track['tracknumber'] + offset] = track
+                diskNumber = track['disknumber'][0]
+                trackNumber = track['tracknumber'][0].split('/')[0]
+
+                if diskNumber == disk:
+                    chapters[trackNumber + offset] = track
                     tracksDone += 1
             disk += 1
     else:
         for track in tracks:
-            chapters[track['tracknumber']] = track
+            trackNumber = int(track['tracknumber'][0].split('/')[0])
+            chapters[trackNumber] = track
 
     return chapters
 
@@ -138,13 +143,14 @@ def mergeBook(folderPath, outPath = False, move = False):
 def orderFiles(files):
     pieces = []
     tracks = []
+    hasMultipleDisks = False
 
     for file in files:
         track = mutagen.File(file, easy=True)
         tracks.append(track)
 
         try:
-            if track['discnumber'] != 1:
+            if track['discnumber'][0] != 1:
                 hasMultipleDisks = True
         except KeyError:
             pass
@@ -166,7 +172,7 @@ def createTempFiles(pieces, folderPath):
     tempChapFilepath = ""
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempConcatFile, \
     tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempChapFile:
-        #TODO skip books when this errors instead of crashing whole script?
+        #TODO skip books when this errors instead of crashing whole script? Especially on the for p loop.
         runningTime = 0
         chapCount = 1
         tempChapFile.write(";FFMETADATA1\n")

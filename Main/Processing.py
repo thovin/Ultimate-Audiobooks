@@ -130,12 +130,12 @@ def recursivelyCombineBatch():
         shutil.rmtree(outFolder)
 
     outFolder.mkdir()
-    combineAndFindChapters(infolder, outFolder, 0, infolder)
+    combineAndFindChapters(infolder, outFolder, 1, infolder)
     
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
 
-    log.debug("Removing temp folder")   #TODO what happens if there are failed/skipped books in here?
+    log.debug("Removing temp folder")   #TODO what happens if there are failed/skipped books in here? It errors, dir not empty.
     outFolder.rmdir()
 
 
