@@ -473,9 +473,10 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-i', file,  #input file
            '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
-           '-hide_banner', #suppress verbose progress output
-        #    '-loglevel error',
-        #    '-loglevel warning',
+           # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
+           # '-loglevel', 'error',
+           '-loglevel', 'warning',
+           '-stats',    #adds back the progress bar loglevel hides
            newPath]
     
     
@@ -667,7 +668,7 @@ def sanitizeFile(file):
     newParent = re.sub(r'[<>"|?*\']', '', parent)
     Path(newParent).mkdir(parents = True, exist_ok = True)
 
-    newPath = Path(newParent).with_name(name)
+    newPath = Path(newParent) / name
 
     if file == newPath:
         return file

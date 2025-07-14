@@ -111,10 +111,11 @@ def mergeBook(folderPath, outPath = False, move = False):
         '-i', tempChapFilePath, "-map_metadata", "1",
         '-codec', 'copy',    #copy audio streams instead of re-encoding
         '-vn',   #disable video
-        '-hide_banner', #suppress verbose progress output
-        #    '-loglevel error',
-        #    '-loglevel warning',
-        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of seperation of duties
+        # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
+        # '-loglevel', 'error',
+        '-loglevel', 'warning',
+        '-stats',    #adds back the progress bar loglevel hides
+        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of separation of duties
         ]
     
     log.debug("Begin combining")
