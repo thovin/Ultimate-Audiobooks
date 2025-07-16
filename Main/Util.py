@@ -653,6 +653,7 @@ def calculateWorkerCount():
     return numCores / 2 if numCores / 2 < availableMemory - 2 else availableMemory - 2
 
 def sanitizeFile(file):
+    log.debug("Sanitize in - " + file.name)
     file = Path(file)
     name = file.name
     parent = str(file.parent)
@@ -674,7 +675,10 @@ def sanitizeFile(file):
     newPath = Path(newParent) / name
 
     if file == newPath:
+        log.debug("Sanitize out - no changes")
         return file
+
     else:
+        log.debug("Sanitize out - " + newPath.name)
         return file.rename(newPath)
 
