@@ -123,7 +123,7 @@ def mergeBook(folderPath, outPath = False, move = False):
         newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of separation of duties
         ]
 
-        #TODO manually parse out ffmpeg warnings like "Error reading comment frame, skipped", "Incorrect BOM value"
+        #TODO manually parse out ffmpeg warnings like "Error reading comment frame, skipped", "Incorrect BOM value", "Application provided invalid, non monotonically increasing dts to muxer in <stream 0: 182540921472 >= 182539260288>"
     
     log.debug("Begin combining")
     try:
