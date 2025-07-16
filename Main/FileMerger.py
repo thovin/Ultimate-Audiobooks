@@ -122,6 +122,8 @@ def mergeBook(folderPath, outPath = False, move = False):
         '-stats',    #adds back the progress bar loglevel hides
         newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of separation of duties
         ]
+
+        #TODO manually parse out ffmpeg warnings like "Error reading comment frame, skipped", "Incorrect BOM value"
     
     log.debug("Begin combining")
     try:
