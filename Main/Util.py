@@ -164,7 +164,7 @@ def GETpage(url, md):
         md.failed = True
         return page
     
-
+#TODO add in a warning for when people click on a book series instead of individual book? And add fail logic instead of crashing.
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
     try:
@@ -461,7 +461,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
 
     #TODO get unique path won't serve here because the file extension is going to change?
-    newPath = getUniquePath(file.name, newPath.parent)
+    newPath = getUniquePath(newPath.name, newPath.parent)
 
     if settings.move:
         file = sanitizeFile(file)

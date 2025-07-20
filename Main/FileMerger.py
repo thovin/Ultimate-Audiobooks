@@ -30,7 +30,7 @@ def findTitleNum(title, whichNum) -> int:
 
 
 def orderByTrackNumber(tracks, hasMultipleDisks):
-    chapters = [None] * len(tracks)
+    chapters = [None] * (len(tracks) + 1)
     
 
     if hasMultipleDisks:
@@ -50,6 +50,9 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
         for track in tracks:
             trackNumber = int(track['tracknumber'][0].split('/')[0])
             chapters[trackNumber] = track
+
+    if chapters[0] == None:
+        chapters = chapters[1:]
 
     return chapters
 
