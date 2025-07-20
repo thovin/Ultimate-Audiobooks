@@ -49,7 +49,7 @@ def processConversions():
             log.info(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
         else:
             numWorkers = 1
-            log.info("Number of works not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
+            log.info("Number of workers not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
 
     with ProcessPoolExecutor(max_workers=numWorkers) as controller:
         futures = [controller.submit(processConversion, c, settings) for c in conversions]
