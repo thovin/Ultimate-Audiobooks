@@ -461,7 +461,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
 
     #TODO get unique path won't serve here because the file extension is going to change?
-    newPath = getUniquePath(file.name, newPath)
+    newPath = getUniquePath(file.name, newPath.parent)
 
     if settings.move:
         file = sanitizeFile(file)
@@ -637,7 +637,7 @@ def getUniquePath(fileName, outpath):
     # ogPath = outpath + "/" + fileName
     # ogPath = outpath / fileName
     # currPath = ogPath
-    currPath = outpath
+    currPath = Path(outpath) / fileName
     while os.path.exists(currPath):
         currPath = currPath + " - " + str(counter)  #TODO Pretty sure this addition is broken
         counter += 1
