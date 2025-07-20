@@ -81,7 +81,7 @@ def processFile(file):
         #TODO set md.bookPath according to rename
         cleanAuthor = re.sub(r'[<>"|?’:*]', '', md.author)
         cleanTitle = re.sub(r'[<>"|?’:*]', '', md.title)
-        md.bookPath = settings.output + f"/{md.author}/{md.title}"
+        md.bookPath = settings.output + f"/{cleanAuthor}/{cleanTitle}"
         # md.bookPath = re.sub(r'[<>"|?’:*]', '', md.bookPath)
         log.debug(f"Making directory {md.bookPath} if not exists")
         Path(md.bookPath).mkdir(parents = True, exist_ok = True)
