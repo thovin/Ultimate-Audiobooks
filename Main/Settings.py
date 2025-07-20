@@ -70,7 +70,7 @@ class Settings:
                 sys.exit()
 
     def checkFolders(self): #TODO this is really only a problem when using ffmpeg, I think. Cut this check and/or only check when going to use it and only check in those functions?
-        specials = re.compile(r'[<>"|?’*\x00-\x1F]')
+        specials = re.compile(r'[<,>"|\'?’*\x00-\x1F]') #since this is a dir path, no colons allowed
         inDirs = self.input.split(os.sep)
         outDirs = self.output.split(os.sep)
 

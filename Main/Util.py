@@ -456,9 +456,11 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
     if md.title:
-        newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO temp change to title while working on rename
+        # newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', md.title) + ".mp4")   #TODO temp change to title while working on rename
     else:
-        newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
+        # newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', file.stem) + ".mp4")   #TODO temp change to title while working on rename
 
     #TODO get unique path won't serve here because the file extension is going to change?
     newPath = getUniquePath(newPath.name, newPath.parent)
@@ -666,10 +668,11 @@ def sanitizeFile(file):
     for og, new in subs.items():
         name = name.replace(og, new)
 
-    name = re.sub(r'[<>"|?’*\']', '', name)
+    name = re.sub(r'[<>"|?’:,*\']', '', name)
     # name = re.sub(r'[^\x00-\x7F]+', '', name) #non-ASCII characters, in case they end up being trouble
 
-    newParent = re.sub(r'[<>"|?’*\']', '', parent)
+    # newParent = re.sub(r'[<>"|?’:,*\']', '', parent)
+    newParent = re.sub(r'[<>"|?’,*\']', '', parent) #since this is a dir path, no colons allowed
     Path(newParent).mkdir(parents = True, exist_ok = True)
 
     newPath = Path(newParent) / name
