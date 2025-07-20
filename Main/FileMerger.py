@@ -54,6 +54,9 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
     if chapters[0] == None:
         chapters = chapters[1:]
 
+    if chapters[-1] == None:
+        chapters = chapters[:-1]
+
     return chapters
 
 
