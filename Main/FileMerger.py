@@ -50,7 +50,11 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
     else:
         for track in tracks:
             trackNumber = int(track['tracknumber'][0].split('/')[0])
-            chapters[trackNumber] = track
+            if chapters[trackNumber] != None:
+                chapters[trackNumber] = track
+            else:
+                log.debug("Overlapping track numbers detected. Aborting track number sort.")
+                return []
 
     if chapters[0] == None:
         chapters = chapters[1:]
