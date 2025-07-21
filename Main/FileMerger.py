@@ -30,6 +30,7 @@ def findTitleNum(title, whichNum) -> int:
 
 
 def orderByTrackNumber(tracks, hasMultipleDisks):
+    log.debug("Attempting to order files by track number...")
     chapters = [None] * (len(tracks) + 1)
     
 
@@ -61,6 +62,7 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
 
 
 def orderByTitle(tracks):
+    log.debug("Attempting to order files by name...")
     number = 0
 
     while True:
@@ -71,7 +73,8 @@ def orderByTitle(tracks):
 
         if -1 in trackMap:
             #TODO skip this book
-            break   #no more numbers, no order beginning in 1
+            log.debug("Failed to order files by name")
+            return []   #no more numbers, no order beginning in 1
         elif ordered[0] != 1 or len(ordered) < 2: #check for 1, 1, 1, ...
             number += 1
             continue
@@ -83,6 +86,7 @@ def orderByTitle(tracks):
     
 
 def mergeBook(folderPath, outPath = False, move = False):
+    #TODO figure out how to properly skip/fail books at this stage
     log.debug("Begin merging chapters in " + folderPath.name)
     files = list(folderPath.glob("*.mp*"))
     hasMultipleDisks = False
@@ -97,7 +101,7 @@ def mergeBook(folderPath, outPath = False, move = False):
 
     log.debug(str(len(files)) + " chapters detected")
 
-    #TODO when --rename is working, apply here
+    #TODO (rename) when --rename is working, apply here
     #TODO process merges at end like conversions?
     #TODO improve processing for multiple disks not in metadata
 
@@ -111,6 +115,9 @@ def mergeBook(folderPath, outPath = False, move = False):
             files[i] = sanitizeFile(copyFile)
     
     pieces = orderFiles(files)
+
+    if len(pieces) == 0:
+        return
         
     # TODO When sanitizing chapter files, worth trying to keep the original name in chapter metadata?
     tempConcatFilePath, tempChapFilePath = createTempFiles(pieces, folderPath)
@@ -141,7 +148,8 @@ def mergeBook(folderPath, outPath = False, move = False):
                     os.remove(line[5:].strip().strip('\''))
 
     except subprocess.CalledProcessError as e:
-        return #TODO
+        log.error("ffmpeg has encountered an error while combining chapters. Skipping book...")
+        return
     
     os.remove(tempConcatFilePath)
     os.remove(tempChapFilePath)
@@ -166,12 +174,17 @@ def orderFiles(files):
     try:
         pieces = orderByTrackNumber(tracks, hasMultipleDisks)
     except Exception as e:
+        log.debug("Failed to order files by track number")
         pass
 
     if len(pieces) == 0:
         pieces = orderByTitle(tracks)
 
-    log.debug("Pieces ordered")
+    if len(pieces) == 0:
+        log.error("Failed to order files. Skipping book...")
+    else:
+        log.debug("Pieces ordered")
+
     return pieces
 
 def createTempFiles(pieces, folderPath):
@@ -180,7 +193,7 @@ def createTempFiles(pieces, folderPath):
     tempChapFilepath = ""
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempConcatFile, \
     tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=folderPath) as tempChapFile:
-        #TODO skip books when this errors instead of crashing whole script? Especially on the for p loop.
+        #TODO skip books when this errors instead of crashing whole script? Especially on the for p loop. //This should be solved by checking for empty pieces list. Keep an eye on it.
         runningTime = 0
         chapCount = 1
         tempChapFile.write(";FFMETADATA1\n")

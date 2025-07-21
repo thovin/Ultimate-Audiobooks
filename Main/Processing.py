@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 settings = None
 conversions = []
 skips = []
+fails = []
 
 def loadSettings():
     global settings
@@ -32,7 +33,7 @@ def processConversion(c, settings): #This is run through ProcessPoolExecutor, wh
         cleanMetadata(track, md)
     
     if settings.rename:
-        #TODO
+        #TODO rename
         #again, only apply to copy
         pass
 
@@ -60,8 +61,7 @@ def processConversions():
             try:
                 future.result()
             except Exception as e:
-                log.error(e)    #TODO proper message
-
+                log.error("Error processing conversion: " + str(e))
 
 def processFile(file):
     log.info(f"Processing {file.name}")
@@ -69,20 +69,26 @@ def processFile(file):
     type = Path(file).suffix.lower()
     md = Metadata()
     md.bookPath = settings.output
+    newPath = ""
 
 
     if settings.fetch:
         #existing OPF is ignored in single level batch
         md = fetchMetadata(file, track)
 
-        if md.skip or md.failed:
+        if md.skip:
             skips.append(file)
+            return
+        elif md.failed:
+            fails.append(file)
+            return
 
-        #TODO set md.bookPath according to rename
+        #TODO (rename) set md.bookPath according to rename
         cleanAuthor = re.sub(r'[<>"|?’:,*\']', '', md.author)
         cleanTitle = re.sub(r'[<>"|?’:,*\']', '', md.title)
         md.bookPath = settings.output + f"/{cleanAuthor}/{cleanTitle}"
-        # md.bookPath = re.sub(r'[<>"|?’:*]', '', md.bookPath)
+        
+
         log.debug(f"Making directory {md.bookPath} if not exists")
         Path(md.bookPath).mkdir(parents = True, exist_ok = True)
 
@@ -93,6 +99,8 @@ def processFile(file):
             log.debug(f"Queueing {file.name} for conversion")
             conversions.append(Conversion(file, track, type, md))
             return
+        else:
+            newPath = Path(md.bookPath) / Path(cleanTitle)
 
         if settings.clean and settings.move:
             #if copying, we will only clean the copied file
@@ -103,24 +111,31 @@ def processFile(file):
         return
 
     if settings.rename:
-        #TODO
+        #TODO rename
         #again, only apply to copy
         pass
     
+    if md.skip:
+        skips.append(file)
+        return
+    elif md.failed:
+        fails.append(file)
+        return
+    
+    if newPath == "":
+        newPath = getUniquePath(file.name, md.bookPath)
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
-        # file.rename(getUniquePath(file, md.bookPath))
-        # TODO temporarily use title while working on rename
-        # file.rename(getUniquePath(md.title, md.bookPath))
-        file.rename(getUniquePath(file.name, md.bookPath))
-        # file.rename(md.bookPath + file.name)
-        # shutil.move(file, md.bookPath)
+        # TODO (rename) temporarily use title while working on rename
+        file.rename(newPath)
     else:
-        if settings.fetch:
-            cleanMetadata(track, md)
-
         log.info("Copying " + file.name + " to " + md.bookPath)
-        shutil.copy(file, getUniquePath(file, md.bookPath))
+        shutil.copy(file, newPath)
+
+        if settings.fetch:
+            cleanMetadata(mutagen.File(newPath, easy=True), md)
+
+        
 
 def recursivelyCombineBatch():
     log.info("Begin recursively finding, combining, and processing chapter books")
@@ -138,8 +153,12 @@ def recursivelyCombineBatch():
     log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
     singleLevelBatch(outFolder)
 
-    log.debug("Removing temp folder")   #TODO what happens if there are failed/skipped books in here? It errors, dir not empty.
-    outFolder.rmdir()
+    log.debug("Removing temp folder")
+    if not any(outFolder.iterdir()):
+        outFolder.rmdir()
+    else:
+        log.error("Error: temp directory not empty. Unable to delete.")
+
 
 
 def recursivelyPreserveBatch():
@@ -159,12 +178,9 @@ def singleLevelBatch(infolder = None):
     if len(conversions) > 0:
         processConversions()
 
-    if len(skips) > 0:
-        log.info("Books skipped or failed:")
-        for file in skips:
-            log.info(file.name)
+    moveSkipsFails()
 
-    log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
+    log.info("Batch completed. Enjoy your audiobooks!")
 
 
 def recursivelyFetchBatch():    #Since the only difference is passing true to getAudioFiles, I could probably fold this into another batch
@@ -178,7 +194,32 @@ def recursivelyFetchBatch():    #Since the only difference is passing true to ge
     if len(conversions) > 0:
         processConversions()
 
-    log.info("Batch completed. Enjoy your audiobooks!") #TODO extra end processing for failed books and such?
+    moveSkipsFails()
+
+    log.info("Batch completed. Enjoy your audiobooks!")
 
  
     return
+
+def moveSkipsFails():
+    infolder = Path(settings.input)
+    if len(skips) > 0:
+        log.info(str(len(skips)) + " skips. Moving to skip directory...")
+        skipDir = infolder.parent.joinpath("Ultimate Audiobook skips")
+        skipDir.mkdir()
+
+        for file in skips:
+            file.rename(skipDir / file.name)
+    if len(fails) > 0:
+        log.info(str(len(fails)) + " fails. Moving to fail directory...") #TODO what will happen with chapter books that failed in merge?
+        failDir = infolder.parent.joinpath("Ultimate Audiobook fails")
+        failDir.mkdir()
+
+        for file in fails:
+            file.rename(failDir / file.name)
+
+def skipBook(file):
+    skips.append(file)
+
+def failBook(file):
+    fails.append(file)

@@ -27,7 +27,7 @@ class Settings:
             self.createSaveFile()
 
         if not self.output:
-            outPath = str(Path(self.input).parent / "Ultimate Output")  #TODO would it be more convenient to default to the input parent or input? Using the input definitly creates opportunity for infinite loops.
+            outPath = str(Path(self.input).parent / "Ultimate Output")
             self.output = outPath
             log.debug("Output path defaulting to: " + outPath)
 

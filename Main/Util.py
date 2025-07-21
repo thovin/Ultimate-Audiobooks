@@ -17,6 +17,7 @@ import psutil
 import platform
 import urllib.parse
 import re
+import json
 
 log = logging.getLogger(__name__)
 settings = None
@@ -164,7 +165,6 @@ def GETpage(url, md):
         md.failed = True
         return page
     
-#TODO add in a warning for when people click on a book series instead of individual book? And add fail logic instead of crashing.
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
     try:
@@ -242,17 +242,6 @@ def parseAudibleMd(info, md):
 
 
     try:
-        # series = info['series']
-        # if len(series) == 1:
-        #     md.series = series[0]
-        # elif len(series) > 1:
-        #     md.seriesMulti = series
-        # else:
-        #     #TODO exception
-        #     pass
-
-        # md.series = info('publication_name')    #TODO test this with several books to make sure I've understood what it is
-
         md.series = info['series'][0]['title']
     except Exception as e:
         log.debug("Exeption parsing series in audible JSON")
@@ -310,7 +299,7 @@ def parseGoodreadsMd(soup, md):
     #     log.debug("Exeption parsing release year from goodreads")
 
 
-    # try:    #TODO
+    # try:    #TODO genres
     #     md.genres = soup.find().text.strip()
     # except Exception as e:
     #     log.debug("Exeption parsing genre from goodreads")
@@ -329,13 +318,13 @@ def parseGoodreadsMd(soup, md):
         log.debug("Exeption parsing series from goodreads")
 
 
-    # try:    #TODO
+    # try:    #TODO volume num
     #     temp = soup.find('h3', class_="Text Text__title3 Text__italic Text__regular Text__subdued").text.strip()
     #     md.volumeNumber = temp[ : temp.find('#')]
     # except Exception as e:
     #     log.debug("Exeption parsing volume number from goodreads")
 
-    try:    #TODO
+    try:    #TODO volume num
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.volumeNumber = temp[temp.find('#') + 1: ]
         pass
@@ -391,7 +380,7 @@ def fetchMetadata(file, track) -> Metadata:
 
 
     tempClipboard = pyperclip.paste()
-    log.info("Waiting for URL")
+    log.info("Waiting for URL...")
     while True:
         time.sleep(1)
         currClipboard = pyperclip.paste()
@@ -410,9 +399,17 @@ def fetchMetadata(file, track) -> Metadata:
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl, md)
-            info = page.json()['product']
-            parseAudibleMd(info, md)
-            break
+            try:
+                info = page.json()['product']
+                parseAudibleMd(info, md)
+                break
+            except json.decoder.JSONDecodeError:
+                log.error("Error decoding Audible JSON. Perhaps you copied the link to a series instead of a book? Try again or copy \"skip\" to skip this book.")
+                pyperclip.copy("Ultimate Audiobooks")
+                md.failed = False
+                log.info("Waiting for URL...")
+
+
 
         elif "goodreads.com" in currClipboard:
             log.debug("Goodreads URL captured: " + currClipboard)
@@ -456,14 +453,14 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
     if md.title:
-        # newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO temp change to title while working on rename
-        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', md.title) + ".mp4")   #TODO temp change to title while working on rename
+        # newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO (rename) temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', md.title) + ".mp4")   #TODO (rename) temp change to title while working on rename
     else:
-        # newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO temp change to title while working on rename
-        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', file.stem) + ".mp4")   #TODO temp change to title while working on rename
+        # newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO (rename) temp change to title while working on rename
+        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', file.stem) + ".mp4")   #TODO (rename) temp change to title while working on rename
 
-    #TODO get unique path won't serve here because the file extension is going to change?
-    newPath = getUniquePath(newPath.name, newPath.parent)
+    tempPath = newPath
+    newPath = getUniquePath(newPath.with_suffix(".m4b").name, newPath.parent)
 
     if settings.move:
         file = sanitizeFile(file)
@@ -480,7 +477,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            # '-loglevel', 'error',
            '-loglevel', 'warning',
            '-stats',    #adds back the progress bar loglevel hides
-           newPath]
+           tempPath]
     
     
     if type == '.mp3':
@@ -489,7 +486,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             subprocess.run(cmd, check=True)
 
             file.unlink() #if not settings.move, a copy is created which this deletes. Nondestructive.
-            return newPath.rename(newPath.with_suffix('.m4b'))
+            return tempPath.rename(newPath)
 
         except subprocess.CalledProcessError as e:
             log.error(f"Conversion failed! Aborting file...")
@@ -634,14 +631,11 @@ def createOpf(md):
 
 def getUniquePath(fileName, outpath):
     counter = 1
-    #TODO temp change while working on rename
-    # ogPath = outpath + "/" + book.name
-    # ogPath = outpath + "/" + fileName
-    # ogPath = outpath / fileName
-    # currPath = ogPath
+    #TODO (rename) temp change while working on rename
+    type = Path(fileName).suffix
     currPath = Path(outpath) / fileName
     while os.path.exists(currPath):
-        currPath = currPath + " - " + str(counter)  #TODO Pretty sure this addition is broken
+        currPath = Path(outpath) / Path(str(Path(fileName).stem) + " - " + str(counter) + type)
         counter += 1
 
     return currPath
@@ -671,7 +665,6 @@ def sanitizeFile(file):
     name = re.sub(r'[<>"|?’:,*\']', '', name)
     # name = re.sub(r'[^\x00-\x7F]+', '', name) #non-ASCII characters, in case they end up being trouble
 
-    # newParent = re.sub(r'[<>"|?’:,*\']', '', parent)
     newParent = re.sub(r'[<>"|?’,*\']', '', parent) #since this is a dir path, no colons allowed
     Path(newParent).mkdir(parents = True, exist_ok = True)
 
