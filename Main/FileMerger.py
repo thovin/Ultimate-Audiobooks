@@ -22,10 +22,13 @@ def findTitleNum(title, whichNum) -> int:
         return int(re.findall(r'\d+', title)[whichNum])  #find all numbers, return specified
     except IndexError:
         if any(word in title for word in ["intro".upper(), "prologue".upper()]):
-            return 1
+            log.debug("Intro or prologue detected. Setting as first element in trackmap.")
+            return 0
         if any(word in title for word in ["outro".upper(), "epilogue".upper(), "credits".upper()]):
+            log.debug("Outro, epilogue, or credits detected. Setting as last element in trackmap.")
             return 999
         else:
+            log.debug("Failed to find keyword or number in title on numberPosition " + str(whichNum))
             return -1   #no more numbers in title
 
 
@@ -50,7 +53,7 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
     else:
         for track in tracks:
             trackNumber = int(track['tracknumber'][0].split('/')[0])
-            if chapters[trackNumber] != None:
+            if chapters[trackNumber] != None:#TODO
                 chapters[trackNumber] = track
             else:
                 log.debug("Overlapping track numbers detected. Aborting track number sort.")
@@ -67,20 +70,24 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
 
 def orderByTitle(tracks):
     log.debug("Attempting to order files by name...")
-    number = 0
+    whichNum = 0
 
     while True:
         trackMap = {}
         for track in tracks:
-            trackMap[findTitleNum(Path(track.filename).stem, number)] = track
+            key = findTitleNum(Path(track.filename).stem, whichNum)
+            if key in trackMap:
+                log.debug("Duplicate track numbers detected at position " + str(whichNum))
+            else:
+                trackMap[key] = track
         ordered = sorted(trackMap.keys())
 
         if -1 in trackMap:
             #TODO skip this book
             log.debug("Failed to order files by name")
             return []   #no more numbers, no order beginning in 1
-        elif ordered[0] != 1 or len(ordered) < 2: #check for 1, 1, 1, ...
-            number += 1
+        elif ordered[0] != 0 and ordered[0] != 1:
+            whichNum += 1
             continue
         else:
             tracksOut = []
