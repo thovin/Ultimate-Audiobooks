@@ -167,55 +167,47 @@ def GETpage(url, md):
     
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
-    try:
-        # authors = info['authors'] #TODO multiple authors work
-        # if len(authors) == 2:   #2 because the first element is ASIN
-        #     md.author = authors[0]['name']
-        # elif len(authors) > 2:  #Does this work?
-        #     temp = []
-        #     for a in authors:
-        #         temp.append(n['name'])
 
-        #     md.authors = temp
-        # else:
-        #     log.debug("No authors found in audible JSON")
-        #     pass
+    try: #authors
+        if len(info['authors']) == 0:
+            log.debug("No authors found in audible JSON")
+        else:
+            md.author = info['authors'][0]['name']
+
+            for author in info['authors']:
+                md.authors.append(author['name'])
 
         md.author = info['authors'][0]['name']
     except Exception as e:
         log.debug("Exeption parsing author in audible JSON")
 
-    try:
+    try: #title
         md.title = info['title']
     except Exception as e:
         log.debug("Exeption parsing title in audible JSON")
 
 
-    try:
+    try: #summary
         rawSummary = BeautifulSoup(info['publisher_summary'], 'html.parser')
         md.summary = rawSummary.getText()
     except Exception as e:
         log.debug("Exeption parsing summary in audible JSON")
 
 
-    try:
+    try: #subtitle
         md.subtitle = info['subtitle']
     except Exception as e:
         log.debug("Exeption parsing subtitle in audible JSON")
 
 
-    try:
-        # narrators = info['narrators'] #TODO multiple narrators
-        # if len(narrators) == 2:
-        #     md.narrator = narrators[0]['name']
-        # elif len(narrators) > 2:
-        #     temp = []
-        #     for n in narrators:
-        #         temp.append(n['name'])
+    try: #narrators
+        if len(info['narrators']) == 0:
+            log.debug("No narrators found")
+        else:
+            md.narrator = info['narrators'][0]['name']
 
-        #     md.narrators = temp
-        # else:
-        #     log.debug("No narrator found in audible JSON")
+            for n in info['narrators']:
+                md.narrators.append(n['name'])
 
         md.narrator = info['narrators'][0]['name']
 
@@ -223,34 +215,42 @@ def parseAudibleMd(info, md):
         log.debug("Exeption parsing narrator in audible JSON")
 
 
-    try:
+    try: #publisher
         md.publisher = info['publisher_name']
     except Exception as e:
         log.debug("Exeption parsing publisher in audible JSON")
 
 
-    try:
+    try: #publish year
         md.publishYear = info['release_date'][:4]
     except Exception as e:
         log.debug("Exeption parsing release year in audible JSON")
 
 
-    try:
-        md.genres = []  #TODO he commented this out, couldn't get it to work?
+    try: #genres
+        # md.genres = []  #TODO he commented this out, couldn't get it to work?  #thesaurus_subject_keywords[i]
+        pass
     except Exception as e:
         log.debug("Exeption parsing genres in audible JSON")
 
 
-    try:
+    try: #series
         md.series = info['series'][0]['title']
     except Exception as e:
         log.debug("Exeption parsing series in audible JSON")
 
 
-    try:
+    try: #volume num
         md.volumeNumber = info['series'][0]['sequence']
     except Exception as e:
         log.debug("Exeption parsing volume number in audible JSON")
+
+    try: #asin
+        md.asin = info['asin']
+    except Exception as e:
+        log.debug("Exeption parsing ASIN in audible JSON")
+
+    
 
 
 def parseGoodreadsMd(soup, md):
@@ -498,7 +498,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
 
 
-def cleanMetadata(track, md):
+def cleanMetadata(track, md): #TODO add multiple authors and narrators
     log.info("Cleaning file metadata")
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
