@@ -538,8 +538,8 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         track['asin'] = md.asin
         track['series'] = md.series
 
-        if md.volumeNumber != "":
-            track['discnumber'] = [md.volumeNumber]
+        # if md.volumeNumber != "":   #TODO. disnumber seems misleading, even though a lot of people use it this way. Some use a custom key for series-part or series_index.
+        #     track['discnumber'] = [md.volumeNumber]
 
     elif isinstance(track, mp3.MP3):
         log.debug("Cleaning mp3 metadata")
@@ -577,6 +577,7 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         log.error("Audio file not detected as MP3, MP4, or M4A/B. Unable to clean metadata.")
         return
 
+    log.debug("Metadata cleaned")
     track.save()
 
 
