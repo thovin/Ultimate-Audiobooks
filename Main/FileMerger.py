@@ -78,6 +78,8 @@ def orderByTitle(tracks):
             key = findTitleNum(Path(track.filename).stem, whichNum)
             if key in trackMap:
                 log.debug("Duplicate track numbers detected at position " + str(whichNum))
+                trackMap = {999:"error"}
+                break
             else:
                 trackMap[key] = track
         ordered = sorted(trackMap.keys())
