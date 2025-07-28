@@ -71,6 +71,12 @@ def processFile(file):
     md.bookPath = settings.output
     newPath = ""
 
+    if track == None:
+        log.error("File unable to be processed. Check for corruption. Skipping...")
+        md.skip = True
+        skips.append(file)
+        return
+
 
     if settings.fetch:
         #existing OPF is ignored in single level batch
@@ -100,7 +106,7 @@ def processFile(file):
             conversions.append(Conversion(file, track, type, md))
             return
         else:
-            newPath = Path(md.bookPath) / Path(cleanTitle)
+            newPath = Path(md.bookPath) / Path(cleanTitle).with_suffix(type)
 
         if settings.clean and settings.move:
             #if copying, we will only clean the copied file
