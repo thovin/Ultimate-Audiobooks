@@ -398,7 +398,7 @@ def parseGoodreadsMd(soup, md):
     except Exception as e:
         log.debug("Exeption parsing volume number from goodreads")
 
-# //TODO if a bunch of metadata grabs fail assume the linky was malformed, loop
+
 def fetchMetadata(file, track) -> Metadata:
     log.info("Fetching metadata")
     md = Metadata()
@@ -427,23 +427,80 @@ def fetchMetadata(file, track) -> Metadata:
     elif settings.fetch == "both":
         searchURL = f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}"
 
-    #some linux OSs don't play nice with webbrowser.open (cries in KDE Neon)
-    if platform.system() == "Windows" or platform.system() == "Darwin":
-        webbrowser.open(searchURL, new = 2)
-    else:
-        webbrowser.get('firefox').open(searchURL, new = 2)
+    # Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
+    def open_url_cross_platform(url):
+        try:
+            system = platform.system()
+            # On Linux, prefer xdg-open in a fully detached subprocess FIRST to ensure persistence
+            if system == "Linux":
+                try:
+                    log.debug("Linux detected; launching via xdg-open (detached)")
+                    subprocess.Popen(
+                        ['xdg-open', url],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    return
+                except Exception:
+                    log.debug("xdg-open failed; attempting Python webbrowser as fallback")
+                    try:
+                        if webbrowser.open(url, new=2):
+                            return
+                    except Exception:
+                        pass
 
+                log.debug("Default browser open failed; attempting additional platform-specific fallbacks")
+                # As a last resort on Linux, try known controllers (still may be tied to parent)
+                for browser in ['firefox', 'google-chrome', 'chromium', 'brave-browser']:
+                    try:
+                        webbrowser.get(browser).open(url, new=2)
+                        return
+                    except Exception:
+                        continue
 
-        #TODO see if you can get one of these to work, for the nice distros
-        # openedTab = webbrowser.open(searchURL, new = 2)
-        # if not openedTab:
-        #     webbrowser.get('firefox').open(searchURL, new = 2)
+                log.error("Could not open a web browser. Please open this URL manually: " + url)
+                return
 
-        # try:
-        #     webbrowser.open(searchURL, new = 2)
-        # except:
-        #     # subprocess.run(['xdg-open', searchURL], check=True)
-        #     webbrowser.get('firefox').open(searchURL, new = 2)
+            # Non-Linux platforms
+            # 1) Honor $BROWSER if set
+            browser_env = os.environ.get('BROWSER')
+            if browser_env:
+                try:
+                    log.debug(f"Using BROWSER controller: {browser_env}")
+                    webbrowser.get(browser_env).open(url, new=2)
+                    return
+                except Exception:
+                    pass
+
+            # 2) Use Python's default (respects system defaults)
+            try:
+                if webbrowser.open(url, new=2):
+                    log.debug("Opened URL via Python webbrowser default")
+                    return
+            except Exception:
+                pass
+
+            # 3) Minimal platform-specific fallbacks
+            log.debug("Default browser open failed; attempting platform-specific fallback")
+            
+            if system == "Windows":
+                try:
+                    os.startfile(url)  # type: ignore[attr-defined]
+                    return
+                except Exception:
+                    pass
+            elif system == "Darwin":
+                try:
+                    subprocess.Popen(['open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                    return
+                except Exception:
+                    pass
+            log.error("Could not open a web browser. Please open this URL manually: " + url)
+        except Exception as e:
+            log.error(f"Failed to open browser: {e}. Please open this URL manually: {url}")
+
+    open_url_cross_platform(searchURL)
 
 
     tempClipboard = pyperclip.paste()
