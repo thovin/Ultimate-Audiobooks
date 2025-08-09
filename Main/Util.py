@@ -394,8 +394,37 @@ def fetchMetadata(file, track) -> Metadata:
             break
         elif "audible.com" in currClipboard:
             log.debug("Audible URL captured: " + currClipboard)
-            asin = currClipboard[currClipboard.find("Audiobook/") + len("Audiobook/"):]
-            md.asin = asin
+            # Robustly extract ASIN from path or query, ignoring extra query params
+            try:
+                parsed = urllib.parse.urlparse(currClipboard.strip())
+                path_parts = [p for p in parsed.path.split('/') if p]
+                asin_match = None
+                # Search path segments from the end for a valid ASIN (10-char starting with 'B')
+                for part in reversed(path_parts):
+                    m = re.match(r'^B[0-9A-Z]{9}$', part, re.IGNORECASE)
+                    if m:
+                        asin_match = m.group(0).upper()
+                        break
+                # Fallback to query parameter 'asin' if present
+                if not asin_match:
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    candidate = qs.get('asin', [None])[0]
+                    if candidate and re.match(r'^B[0-9A-Z]{9}$', candidate, re.IGNORECASE):
+                        asin_match = candidate.upper()
+                if not asin_match:
+                    log.error("Unable to extract ASIN from Audible URL. Please copy a book page link and try again, or copy 'skip' to skip this book.")
+                    pyperclip.copy("Ultimate Audiobooks")
+                    md.failed = False
+                    log.info("Waiting for URL...")
+                    continue
+                md.asin = asin_match
+            except Exception:
+                log.exception("Error parsing Audible URL")
+                pyperclip.copy("Ultimate Audiobooks")
+                md.failed = False
+                log.info("Waiting for URL...")
+                continue
+
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl, md)
