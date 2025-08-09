@@ -72,6 +72,8 @@ def orderByTitle(tracks):
     log.debug("Attempting to order files by name...")
     whichNum = 0
 
+    #TODO no cap on whichNum, makes an infinite loop on failure
+    #TODO fails to detect janky disk number formatting in lean mean thirteen
     while True:
         trackMap = {}
         for track in tracks:
