@@ -331,7 +331,7 @@ def parseGoodreadsMd(soup, md):
     except Exception as e:
         log.debug("Exeption parsing volume number from goodreads")
 
-
+# //TODO if a bunch of metadata grabs fail assume the linky was malformed, loop
 def fetchMetadata(file, track) -> Metadata:
     log.info("Fetching metadata")
     md = Metadata()

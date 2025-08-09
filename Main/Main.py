@@ -19,6 +19,7 @@ log.basicConfig(level=log.DEBUG, format = "[%(asctime)s][%(levelname)s] %(messag
 # log.basicConfig(level=log.INFO, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
 settings = None
 
+#TODO hold until keypress at end so user can see logs
 def main(args):
     #Yes, I know this approach isn't super elegant. Feel free to recommend an alternative that isn't more of a pain in the ass like a config file.
     global settings
