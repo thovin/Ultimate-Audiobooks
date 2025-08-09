@@ -675,14 +675,18 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
 
 
-def cleanMetadata(track, md): #TODO add multiple authors and narrators
+def cleanMetadata(track, md):
     log.info("Cleaning file metadata")
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
 
         track.delete()
         track['title'] = md.title
-        track['artist'] = md.narrator
+        # Narrators (support multiple if available)
+        if hasattr(md, 'narrators') and md.narrators:
+            track['artist'] = md.narrators
+        else:
+            track['artist'] = md.narrator
         track['album'] = md.series
         track['date'] = md.publishYear
         track['discnumber'] = int(md.volumeNumber)
@@ -722,7 +726,11 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
 
         track.delete()
         track['title'] = md.title
-        track['narrator'] = md.narrator
+        # Narrators (support multiple if available)
+        if hasattr(md, 'narrators') and md.narrators:
+            track['narrator'] = md.narrators
+        else:
+            track['narrator'] = md.narrator
         track['date'] = md.publishYear
         track['description'] = md.summary
         # Authors (support multiple)
@@ -746,7 +754,9 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
 
         track.delete()
         track.add(mutagen.TIT2(encoding = 3, text = md.title))
-        track.add(mutagen.TPE1(encoding = 3, text = md.narrator))
+        # Narrators (ID3 TPE1) supports multiple
+        tpe1_text = md.narrators if hasattr(md, 'narrators') and md.narrators else md.narrator
+        track.add(mutagen.TPE1(encoding = 3, text = tpe1_text))
         track.add(mutagen.TALB(encoding = 3, text = md.series))
         track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
         track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
@@ -780,7 +790,11 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         if hasattr(md, 'genres') and md.genres:
             track['\xa9gen'] = md.genres
         track['\xa9des'] = md.summary
-        track['\xa9nrt'] = md.narrator
+        # Narrators (MP4) - support multiple values
+        if hasattr(md, 'narrators') and md.narrators:
+            track['\xa9nrt'] = md.narrators
+        else:
+            track['\xa9nrt'] = md.narrator
         track['----:com.thovin:isbn'] = mutagen.mp4.MP4FreeForm(md.isbn.encode('utf-8'))
         track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
         track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
