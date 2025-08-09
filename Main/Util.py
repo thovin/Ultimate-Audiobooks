@@ -329,25 +329,30 @@ def parseGoodreadsMd(soup, md):
         md.summary = soup.find('span', class_="Formatted").text.strip()
     except Exception as e:
         log.debug("Exeption parsing summary from goodreads")
+    
+    # Publisher, Publish Year, ISBN
+    try:
+        details_section = soup.select_one('[data-testid="bookDetails"]') or soup.find('div', id='bookDataBox')
+        details_text = details_section.get_text(" ", strip=True) if details_section else soup.get_text(" ", strip=True)
 
+        # Publish year (First published ... YYYY) or (Published ... YYYY)
+        m_year = re.search(r'(?:First\s+published|Published)[^\d]*(\d{4})', details_text, re.IGNORECASE)
+        if m_year:
+            md.publishYear = m_year.group(1)
 
-    # try:
-    #     # temp = soup.find('div', class_="TruncatedContent__text TruncatedContent__text--small").text.strip()
-    #     # byIndex = temp.find(" by ")
-    #     # md.publisher = temp[byIndex + 4 :]
+        # Publisher (after 'by ')
+        m_pub = re.search(r'Published.*?by\s+([^\d,]+)', details_text, re.IGNORECASE)
+        if m_pub:
+            md.publisher = m_pub.group(1).strip()
 
-    #     temp = soup.find("dt", text="Published").find_sibling("div", attrs={"data-testid" : 'contentContainer'})
-    #     pass
-    # except Exception as e:
-    #     log.debug("Exeption parsing publisher from goodreads")
-
-
-    # try:
-    #     temp = soup.find('div', class_="TruncatedContent__text TruncatedContent__text--small").text.strip()
-    #     byIndex = temp.find(" by ")
-    #     md.publishYear = temp[byIndex - 4 : byIndex]
-    # except Exception as e:
-    #     log.debug("Exeption parsing release year from goodreads")
+        # ISBN (10 or 13, possibly with hyphens)
+        m_isbn = re.search(r'ISBN(?:-13)?:?\s*([0-9Xx\-]{10,17})', details_text)
+        if m_isbn:
+            candidate = m_isbn.group(1).replace('-', '').strip()
+            if 10 <= len(candidate) <= 13:
+                md.isbn = candidate
+    except Exception as e:
+        log.debug("Exeption parsing publisher/publish year/ISBN from goodreads")
 
 
     # Genres (multiple)
@@ -379,11 +384,6 @@ def parseGoodreadsMd(soup, md):
         log.debug("Exeption parsing genres from goodreads")
 
 
-    # try:
-    #     temp = soup.find('h3', class_="Text Text__title3 Text__italic Text__regular Text__subdued").text.strip()
-    #     md.series = temp[ : temp.find('#')]
-    # except Exception as e:
-    #     log.debug("Exeption parsing series from goodreads")
         
     try:
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
@@ -392,16 +392,9 @@ def parseGoodreadsMd(soup, md):
         log.debug("Exeption parsing series from goodreads")
 
 
-    # try:    #TODO volume num
-    #     temp = soup.find('h3', class_="Text Text__title3 Text__italic Text__regular Text__subdued").text.strip()
-    #     md.volumeNumber = temp[ : temp.find('#')]
-    # except Exception as e:
-    #     log.debug("Exeption parsing volume number from goodreads")
-
-    try:    #TODO volume num
+    try:
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.volumeNumber = temp[temp.find('#') + 1: ]
-        pass
     except Exception as e:
         log.debug("Exeption parsing volume number from goodreads")
 
