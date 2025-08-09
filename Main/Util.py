@@ -168,16 +168,22 @@ def GETpage(url, md):
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
 
-    try: #authors
-        if len(info['authors']) == 0:
-            log.debug("No authors found in audible JSON")
+    try: #authors (multiple supported)
+        md.authors = []
+        authors_raw = info.get('authors', [])
+        if isinstance(authors_raw, list) and len(authors_raw) > 0:
+            for author in authors_raw:
+                name = None
+                if isinstance(author, dict):
+                    name = author.get('name') or author.get('display_name')
+                elif isinstance(author, str):
+                    name = author
+                if name:
+                    md.authors.append(name)
+            if len(md.authors) > 0:
+                md.author = md.authors[0]
         else:
-            md.author = info['authors'][0]['name']
-
-            for author in info['authors']:
-                md.authors.append(author['name'])
-
-        md.author = info['authors'][0]['name']
+            log.debug("No authors found in audible JSON")
     except Exception as e:
         log.debug("Exeption parsing author in audible JSON")
 
@@ -227,9 +233,46 @@ def parseAudibleMd(info, md):
         log.debug("Exeption parsing release year in audible JSON")
 
 
-    try: #genres
-        # md.genres = []  #TODO he commented this out, couldn't get it to work?  #thesaurus_subject_keywords[i]
-        pass
+    try: #genres (multiple supported)
+        genres: list[str] = []
+        # Common fields where genres may appear in Audible product JSON
+        # 1) thesaurus_subject_keywords: ["Fantasy", "Epic" ...]
+        tsk = info.get('thesaurus_subject_keywords')
+        if isinstance(tsk, list):
+            genres.extend([g for g in tsk if isinstance(g, str) and g])
+
+        # 2) genres: can be ["Fantasy", ...] or [{"name": "Fantasy"}, ...]
+        if not genres and 'genres' in info:
+            g = info.get('genres')
+            if isinstance(g, list):
+                for item in g:
+                    if isinstance(item, str) and item:
+                        genres.append(item)
+                    elif isinstance(item, dict):
+                        name = item.get('name') or item.get('title') or item.get('display_name')
+                        if name:
+                            genres.append(name)
+
+        # 3) category_ladders: [[{"name": "Fiction"}, {"name": "Fantasy"}], ...]
+        if not genres and 'category_ladders' in info:
+            ladders = info.get('category_ladders')
+            if isinstance(ladders, list):
+                for ladder in ladders:
+                    if isinstance(ladder, list):
+                        for node in ladder:
+                            if isinstance(node, dict):
+                                name = node.get('name') or node.get('display_name')
+                                if name:
+                                    genres.append(name)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_genres = []
+        for g in genres:
+            if g not in seen:
+                seen.add(g)
+                unique_genres.append(g)
+        md.genres = unique_genres
     except Exception as e:
         log.debug("Exeption parsing genres in audible JSON")
 
@@ -260,19 +303,27 @@ def parseGoodreadsMd(soup, md):
     except Exception as e:
         log.debug("Exeption parsing title from goodreads")
 
-
+    # Authors (multiple)
     try:
-        md.author = soup.find('span', class_="ContributorLink__name").text.strip()
+        md.authors = []
+        author_spans = soup.find_all('span', class_="ContributorLink__name")
+        for span in author_spans:
+            name = span.get_text(strip=True)
+            if name:
+                md.authors.append(name)
+        if len(md.authors) > 0:
+            md.author = md.authors[0]
+        else:
+            # Fallback: try older structure
+            a_links = soup.select('a.ContributorLink__name, a.authorName')
+            for a in a_links:
+                name = a.get_text(strip=True)
+                if name:
+                    md.authors.append(name)
+            if len(md.authors) > 0:
+                md.author = md.authors[0]
     except Exception as e:
-        log.debug("Exeption parsing author from goodreads")
-
-
-    try:    #TODO author multi
-        # md. = soup.find('a', ).text.strip()
-        pass
-    except Exception as e:
-        #TODO ERROR
-        pass
+        log.debug("Exeption parsing authors from goodreads")
 
     try:    #if multiple classes, use wrapper div instead
         md.summary = soup.find('span', class_="Formatted").text.strip()
@@ -299,10 +350,33 @@ def parseGoodreadsMd(soup, md):
     #     log.debug("Exeption parsing release year from goodreads")
 
 
-    # try:    #TODO genres
-    #     md.genres = soup.find().text.strip()
-    # except Exception as e:
-    #     log.debug("Exeption parsing genre from goodreads")
+    # Genres (multiple)
+    try:
+        genres: list[str] = []
+        # New Goodreads layout often lists genres as tag buttons
+        # Strategy 1: look for data-testid containers and anchors
+        containers = soup.select('[data-testid="genresList"], [data-testid="bookMeta"]')
+        for cont in containers:
+            for a in cont.find_all('a'):
+                text = a.get_text(strip=True)
+                if text and len(text) < 60:  # avoid long non-genre texts
+                    genres.append(text)
+        # Strategy 2: look for tag buttons
+        if not genres:
+            for a in soup.select('a.Button--tag, a.ActionLink--genre, a[href*="/genres/"]'):
+                text = a.get_text(strip=True)
+                if text:
+                    genres.append(text)
+        # Deduplicate while preserving order
+        seen = set()
+        unique_genres = []
+        for g in genres:
+            if g not in seen:
+                seen.add(g)
+                unique_genres.append(g)
+        md.genres = unique_genres
+    except Exception as e:
+        log.debug("Exeption parsing genres from goodreads")
 
 
     # try:
@@ -546,14 +620,31 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
 
-        #TODO genres
         track.delete()
         track['title'] = md.title
         track['artist'] = md.narrator
         track['album'] = md.series
         track['date'] = md.publishYear
         track['discnumber'] = int(md.volumeNumber)
-        track['author'] = md.author
+        # Authors (support multiple if available)
+        try:
+            # Support custom 'author' EasyID3 key if available
+            if hasattr(md, 'authors') and md.authors:
+                track['author'] = md.authors
+            else:
+                track['author'] = md.author
+        except Exception:
+            # Fallback to composer for author if custom key unsupported
+            if hasattr(md, 'authors') and md.authors:
+                track['composer'] = md.authors
+            else:
+                track['composer'] = md.author
+        # Genres (support multiple)
+        try:
+            if hasattr(md, 'genres') and md.genres:
+                track['genre'] = md.genres
+        except Exception:
+            pass
         track['asin'] = md.asin
         track.ID3.RegisterTXXXKey('description', md.summary)
         track.ID3.RegisterTXXXKey('subtitle', md.subtitle)
@@ -569,13 +660,19 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
         track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
 
-        #TODO genres
         track.delete()
         track['title'] = md.title
         track['narrator'] = md.narrator
         track['date'] = md.publishYear
         track['description'] = md.summary
-        track['author'] = md.author
+        # Authors (support multiple)
+        if hasattr(md, 'authors') and md.authors:
+            track['author'] = md.authors
+        else:
+            track['author'] = md.author
+        # Genres (support multiple)
+        if hasattr(md, 'genres') and md.genres:
+            track['genre'] = md.genres
         track['publisher'] = md.publisher
         track['isbn'] = md.isbn
         track['asin'] = md.asin
@@ -593,8 +690,14 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         track.add(mutagen.TALB(encoding = 3, text = md.series))
         track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
         track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
-        track.add(mutagen.TCOM(encoding = 3, text = md.author))
-        # track.add(mutagen.TCON(encoding = 3, text = md.md.genres[0]))  #can list multiples by separating with /, //, or ;
+        # Authors (ID3 TCOM) supports multiple
+        if hasattr(md, 'authors') and md.authors:
+            track.add(mutagen.TCOM(encoding = 3, text = md.authors))
+        else:
+            track.add(mutagen.TCOM(encoding = 3, text = md.author))
+        # Genres (ID3 TCON) supports multiple values
+        if hasattr(md, 'genres') and md.genres:
+            track.add(mutagen.TCON(encoding = 3, text = md.genres))
         track.add(mutagen.TPUB(encoding = 3, text = md.publisher))
         track.add(mutagen.TXXX(encoding = 3, desc='description', text = md.summary))
         track.add(mutagen.TXXX(encoding = 3, desc='subtitle', text = md.subtitle))
@@ -606,10 +709,16 @@ def cleanMetadata(track, md): #TODO add multiple authors and narrators
         log.debug("Cleaning mp4/m4b metadata")
         
         track['\xa9nam'] = md.title
-        # track['\xa9gen'] = md.genres[0]
         track['\xa9day'] = md.publishYear
         track['trkn'] = [(int(md.volumeNumber), 0)]
-        track['\xa9aut'] = md.author
+        # Authors (MP4) - support multiple values
+        if hasattr(md, 'authors') and md.authors:
+            track['\xa9aut'] = md.authors
+        else:
+            track['\xa9aut'] = md.author
+        # Genres (MP4)
+        if hasattr(md, 'genres') and md.genres:
+            track['\xa9gen'] = md.genres
         track['\xa9des'] = md.summary
         track['\xa9nrt'] = md.narrator
         track['----:com.thovin:isbn'] = mutagen.mp4.MP4FreeForm(md.isbn.encode('utf-8'))
@@ -630,15 +739,26 @@ def createOpf(md):
     package = ET.Element("package", version="3.0", xmlns="http://www.idpf.org/2007/opf", unique_identifier="BookId")
     metadata = ET.SubElement(package, "metadata", nsmap={'dc' : dcLink})
 
-    author = ET.SubElement(metadata, f"{dcLink}creator", attrib={ET.QName(dcLink, "role"): "aut"})
-    author.text = md.author
+    # Authors: write multiple creators when available; keep first as primary
+    if hasattr(md, 'authors') and md.authors:
+        for name in md.authors:
+            a_el = ET.SubElement(metadata, f"{dcLink}creator", attrib={ET.QName(dcLink, "role"): "aut"})
+            a_el.text = name
+    else:
+        author = ET.SubElement(metadata, f"{dcLink}creator", attrib={ET.QName(dcLink, "role"): "aut"})
+        author.text = md.author
 
-    #TODO handle multiples (2 authors, etc)
     title = ET.SubElement(metadata, f"{dcLink}title")
     title.text = md.title
 
     summary = ET.SubElement(metadata, f"{dcLink}description")
     summary.text = md.summary
+
+    # Genres as dc:subject entries (multiple allowed)
+    if hasattr(md, 'genres') and md.genres:
+        for g in md.genres:
+            subject = ET.SubElement(metadata, f"{dcLink}subject")
+            subject.text = g
 
     # subtitle = ET.SubElement(metadata, f"{dcLink}subtitle")
     # subtitle.text = md.subtitle
