@@ -509,7 +509,6 @@ def fetchMetadata(file, track) -> Metadata:
         time.sleep(1)
         currClipboard = pyperclip.paste()
 
-        # TODO catch exceptions for bad http responses (404, etc) and skip. also, try to tweak audible podcast links?
         if currClipboard == tempClipboard:
             continue
         elif currClipboard.upper() == "SKIP":
@@ -552,10 +551,20 @@ def fetchMetadata(file, track) -> Metadata:
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl, md)
+            if md.failed or not getattr(page, "ok", False):
+                log.error("Audible API request failed. Please copy a valid book page link, or copy 'skip' to skip.")
+                pyperclip.copy("Ultimate Audiobooks")
+                md.failed = False
+                log.info("Waiting for URL...")
+                continue
+
             try:
-                info = page.json()['product']
-                parseAudibleMd(info, md)
-                # Safety net: ensure required fields present
+                data = page.json()
+                product = data.get('product')
+                if not product:
+                    raise KeyError("No 'product' in response")
+                parseAudibleMd(product, md)
+
                 if not md.title or not md.author:
                     log.error("Audible link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
                     pyperclip.copy("Ultimate Audiobooks")
@@ -563,11 +572,12 @@ def fetchMetadata(file, track) -> Metadata:
                     log.info("Waiting for URL...")
                     continue
                 break
-            except json.decoder.JSONDecodeError:
-                log.error("Error decoding Audible JSON. Perhaps you copied the link to a series instead of a book? Try again or copy \"skip\" to skip this book.")
+            except (json.JSONDecodeError, KeyError):
+                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Copy a book page link, or 'skip'.")
                 pyperclip.copy("Ultimate Audiobooks")
                 md.failed = False
                 log.info("Waiting for URL...")
+                continue
 
 
 
