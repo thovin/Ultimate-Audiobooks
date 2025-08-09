@@ -19,7 +19,46 @@ log.basicConfig(level=log.DEBUG, format = "[%(asctime)s][%(levelname)s] %(messag
 # log.basicConfig(level=log.INFO, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
 settings = None
 
-#TODO hold until keypress at end so user can see logs
+# Hold until keypress at end so user can see logs when running interactively
+def _wait_for_keypress(prompt: str = "Press any key to exit...") -> None:
+    try:
+        # Prefer single key without Enter where possible
+        import sys as _sys
+        if not _sys.stdin.isatty():
+            # Non-interactive context; do not block
+            return
+
+        try:
+            # Windows
+            import msvcrt  # type: ignore
+            print(prompt)
+            msvcrt.getch()
+            return
+        except Exception:
+            pass
+
+        try:
+            # Unix-like
+            import termios  # type: ignore
+            import tty  # type: ignore
+            import sys as _sys2
+            print(prompt)
+            fd = _sys2.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                _sys2.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            return
+        except Exception:
+            pass
+
+        # Fallback to Enter
+        input(prompt.replace("any key", "Enter"))
+    except Exception:
+        # Last-resort: don't block if anything unexpected happens
+        return
 def main(args):
     #Yes, I know this approach isn't super elegant. Feel free to recommend an alternative that isn't more of a pain in the ass like a config file.
     global settings
@@ -79,4 +118,36 @@ if __name__ == "__main__":
     args = parser.parse_args()
     log.debug("Arguments parsed successfully")
 
-    main(args)
+    final_message = ""
+    exit_exc = None
+    unexpected_error = False
+    try:
+        main(args)
+        final_message = "Processing complete."
+    except SystemExit as se:
+        # Allow graceful pause on explicit exits
+        final_message = "Exited."
+        exit_exc = se
+    except Exception as e:
+        log.exception("Unhandled exception during execution")
+        final_message = "An unexpected error occurred."
+        unexpected_error = True
+    finally:
+        # Present final message as info only on non-error paths
+        if final_message and not unexpected_error:
+            log.info(final_message)
+        # Only pause for interactive terminals
+        try:
+            if sys.stdin.isatty():
+                _wait_for_keypress("Press any key to close...")
+        except Exception:
+            # As a fallback, attempt a simple input-based pause
+            try:
+                input("Press Enter to close...")
+            except Exception:
+                pass
+        # Preserve exit semantics after pause
+        if exit_exc is not None:
+            raise exit_exc
+        if unexpected_error:
+            sys.exit(1)
