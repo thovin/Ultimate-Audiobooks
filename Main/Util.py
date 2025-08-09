@@ -401,7 +401,7 @@ def fetchMetadata(file, track) -> Metadata:
                 asin_match = None
                 # Search path segments from the end for a valid ASIN (10-char starting with 'B')
                 for part in reversed(path_parts):
-                    m = re.match(r'^B[0-9A-Z]{9}$', part, re.IGNORECASE)
+                    m = re.match(r'^[0-9A-Z]{10}$', part, re.IGNORECASE)
                     if m:
                         asin_match = m.group(0).upper()
                         break
@@ -409,7 +409,7 @@ def fetchMetadata(file, track) -> Metadata:
                 if not asin_match:
                     qs = urllib.parse.parse_qs(parsed.query)
                     candidate = qs.get('asin', [None])[0]
-                    if candidate and re.match(r'^B[0-9A-Z]{9}$', candidate, re.IGNORECASE):
+                    if candidate and re.match(r'^[0-9A-Z]{10}$', candidate, re.IGNORECASE):
                         asin_match = candidate.upper()
                 if not asin_match:
                     log.error("Unable to extract ASIN from Audible URL. Please copy a book page link and try again, or copy 'skip' to skip this book.")
@@ -431,6 +431,13 @@ def fetchMetadata(file, track) -> Metadata:
             try:
                 info = page.json()['product']
                 parseAudibleMd(info, md)
+                # Safety net: ensure required fields present
+                if not md.title or not md.author:
+                    log.error("Audible link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
+                    pyperclip.copy("Ultimate Audiobooks")
+                    md.failed = False
+                    log.info("Waiting for URL...")
+                    continue
                 break
             except json.decoder.JSONDecodeError:
                 log.error("Error decoding Audible JSON. Perhaps you copied the link to a series instead of a book? Try again or copy \"skip\" to skip this book.")
@@ -445,6 +452,13 @@ def fetchMetadata(file, track) -> Metadata:
             page = GETpage(currClipboard, md)
             soup = BeautifulSoup(page.text, 'html.parser')
             parseGoodreadsMd(soup, md)
+            # Safety net: ensure required fields present
+            if not md.title or not md.author:
+                log.error("Goodreads link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
+                pyperclip.copy("Ultimate Audiobooks")
+                md.failed = False
+                log.info("Waiting for URL...")
+                continue
             break
 
     return md
