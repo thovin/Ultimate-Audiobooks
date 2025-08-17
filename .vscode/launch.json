@@ -137,7 +137,7 @@
 
         {
             //Expected outcome: 
-            "name": "XXX test",
+            "name": "Only audible test",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/Main/Main.py",
@@ -145,13 +145,15 @@
             "args": [
                 "--input", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/input",
                 "--batch", "2",
+                "--fetch", "audible",
+                "--move",
                 "--quick"
             ]
         },
 
         {
             //Expected outcome: 
-            "name": "XXX test",
+            "name": "Only Goodreads test",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/Main/Main.py",
@@ -159,6 +161,8 @@
             "args": [
                 "--input", "/run/media/timj/Storage/Code/Ultimate Audiobooks/ultimateTestEnvironment/input",
                 "--batch", "2",
+                "--fetch", "goodreads",
+                "--move",
                 "--quick"
             ]
         },

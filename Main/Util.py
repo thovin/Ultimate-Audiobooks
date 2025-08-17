@@ -425,7 +425,7 @@ def fetchMetadata(file, track) -> Metadata:
     elif settings.fetch == "goodreads":
         searchURL = f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}"
     elif settings.fetch == "both":
-        searchURL = f"https://duckduckgo.com/?t=ffab&q=audible.com/pd/ goodreads.com {searchText}"
+        searchURL = f"https://duckduckgo.com/?t=ffab&q=((site:audible.com inurl:/pd/) OR site:goodreads.com) {searchText}"
 
     # Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
     def open_url_cross_platform(url):
