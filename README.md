@@ -80,15 +80,15 @@ If **fetch** is passed, books will be moved to &lt;outpath&gt;/&lt;author&gt;/&l
 
 &nbsp;
 
-&nbsp;
+---
 
-&nbsp;
+# How to run
+
+Clone this project, set working directory to Main in term, run Main.py with args. Examples below.
+
+---
 
 # Example calls
-
-The command should be entered with your working directory set to Main
-
-&nbsp;
 
 The most basic use. All audio files in the root **input** folder will be processed as individual books and copied to "c:\\some\\input\\folder\\Ultimate Output". Files in subdirectories will be ignored.
 
@@ -111,6 +111,7 @@ With the root folder "c:\\some\\input\\folder", this will set the **batch** siz
 With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move**, **input**, and **quick.** (**Save/Load functionality is not yet implemented)
 
 `Main.py --load --quick --move --input c:\some\input\folder`
+
 
 
 
