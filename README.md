@@ -90,26 +90,29 @@ The command should be entered with your working directory set to Main
 
 &nbsp;
 
+The most basic use. All audio files in the root **input** folder will be processed as individual books and copied to "c:\\some\\input\\folder\\Ultimate Output". Files in subdirectories will be ignored.
+
 `Main.py --input c:\some\input\folder`
 
-The most basic use. All files in the root **input** folder will be processed as individual books and copied to "c:\\some\\input\\folder\\Ultimate Output"
-
 &nbsp;
+
+With the root folder "c:\\some\\input\\folder", this will **fetch** metadata interactively, **clean** the file metadata, **create** an infotext metadata file, and **move** the books to "c:\\some\\input\\folder\\Ultimate Output\\&lt;author&gt;\\&lt;title&gt;". This will be done to all books in the input folder and any subfolders until completion or the **batch** size has been reached.
 
 `Main.py --clean --create infotext --fetch both --move --recurseFetch --input c:\some\input\folder`
 
-With the root folder "c:\\some\\input\\folder", this will **fetch** metadata interactively, **clean** the file metadata, **create** an infotext metadata file, and **move** the books to "c:\\some\\input\\folder\\Ultimate Output\\&lt;author&gt;\\&lt;title&gt;". This will be done to all books in the input folder and any subfolders until completion or the **batch size** has been reached.
-
 &nbsp;
+
+With the root folder "c:\\some\\input\\folder", this will set the **batch** size to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder". It will also save the settings used on this execution. (**Save functionality is not yet implemented)
 
 `Main.py --batch 99999 --save --recurseCombine --input c:\some\input\folder --output c:\some\output\folder`
 
-With the root folder "c:\\some\\input\\folder", this will set the **batch size** to be virtually infinite, recursively combine and process all chapter files, and **output** them to "c:\\some\\output\\folder". It will also save the settings used on this execution.
-
 &nbsp;
+
+With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move**, **input**, and **quick.** (**Save/Load functionality is not yet implemented)
 
 `Main.py --load --quick --move --input c:\some\input\folder`
 
-With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move**, **input**, and **quick.**
+
+
 
 
