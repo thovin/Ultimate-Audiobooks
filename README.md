@@ -1,20 +1,39 @@
-This WIP program is intended to simplify processing audiobook files. <ins>I strongly suggest creating a copy of any important files before running this program on them.</ins> Default functionality is set to copy, which theoretically should protect original files even in case of an error. However, I can not guarantee the safety of original files while still in development.
+This WIP program is intended to simplify processing audiobook files.
+
+⚠️ **Warning:** Always back up your audiobook files before use. The tool defaults to copying files instead of moving them, but data safety is not guaranteed.
 
 If **fetch** is passed, books will be moved to &lt;outpath&gt;/&lt;author&gt;/&lt;title&gt;. Otherwise they will be moved to &lt;outpath&gt;. This will be customizable in the future.
 
-Dependancies:
-- ffmpeg
-- python libraries:
-    - pydub
-    - mutagen
-    - requests
-    - bs4
-    - pyperclip
-    - psutil
+---
 
-Linux based systems will additionally need a copy/paste mechanism, such as xclip or xselect.
+## Features
 
-&nbsp;
+- Copy or move audiobooks into structured folders (`Author/Title`)
+- Fetch metadata from **Audible** and/or **Goodreads**
+- Clean and overwrite file metadata
+- Convert audio files to `.m4b` (via ffmpeg)
+- Generate metadata sidecar files (`.opf`, `infotext`) for library apps like Audiobookshelf
+- Combine or preserve multi-chapter audiobooks
+- Batch processing
+- Save and reload settings for repeated use
+
+---
+
+## Requirements
+
+- **System dependencies**
+  - [ffmpeg](https://ffmpeg.org/) (for audio conversion)
+  - Linux: clipboard utility such as `xclip` or `xsel` (for fetch support)
+
+- **Python libraries**
+  - `pydub`
+  - `mutagen`
+  - `requests`
+  - `beautifulsoup4`
+  - `pyperclip`
+  - `psutil`
+
+---
 
 # Arguments:
 
@@ -110,3 +129,4 @@ With the root folder "c:\\some\\input\\folder", this will set the **batch size*
 `Main.py --load --quick --move --input c:\some\input\folder`
 
 With the root folder "c:\\some\\input\\folder", this will **load** saved settings and skip confirmation of settings. It will also override saved settings for **move**, **input**, and **quick.**
+
