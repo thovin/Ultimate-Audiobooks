@@ -290,6 +290,7 @@
                 "--clean",
                 "--convert",
                 "--create", "OPF",
+                "--loglevel", "DEBUG",
                 "--quick"
             ]
         },
