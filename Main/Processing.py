@@ -63,6 +63,7 @@ def processConversions():
             except Exception as e:
                 log.error("Error processing conversion: " + str(e))
 
+#TODO print log info place in batch
 def processFile(file):
     log.info(f"Processing {file.name}")
     track = mutagen.File(file, easy=True)

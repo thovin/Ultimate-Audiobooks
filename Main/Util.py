@@ -418,14 +418,21 @@ def fetchMetadata(file, track) -> Metadata:
     if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
         pyperclip.copy("Ultimate Audiobooks")
 
-    searchURL = ""
-    #It's not possible for fetch to be anything other than these, as the argparser would throw an error
+    # Construct search query with parentheses around site restrictions
     if settings.fetch == "audible":
-        searchURL = f"https://duckduckgo.com/?t=ffab&q=site:audible.com/pd/ {searchText}"
+        searchQuery = f"site:audible.com/pd/ {searchText}"
     elif settings.fetch == "goodreads":
-        searchURL = f"https://duckduckgo.com/?t=ffab&q=site:goodreads.com {searchText}"
+        searchQuery = f"site:goodreads.com {searchText}"
     elif settings.fetch == "both":
-        searchURL = f"https://duckduckgo.com/?t=ffab&q=((site:audible.com inurl:/pd/) OR site:goodreads.com) {searchText}"
+        searchQuery = f"(site:audible.com/pd/ OR site:goodreads.com) {searchText}"
+
+    # URL-encode the query
+    encodedQuery = urllib.parse.quote(searchQuery)
+    
+    # Use a generic search URL that browsers may route to their default search engine
+    # Many browsers intercept search URLs and use their configured default search engine
+    # If the browser doesn't intercept, it will still perform the search on Google
+    searchURL = f"https://www.google.com/search?q={encodedQuery}"
 
     # Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
     def open_url_cross_platform(url):
@@ -689,7 +696,10 @@ def cleanMetadata(track, md):
             track['artist'] = md.narrator
         track['album'] = md.series
         track['date'] = md.publishYear
-        track['discnumber'] = int(md.volumeNumber)
+        # Series index (volume number in series) - use custom TXXX tag
+        # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
+        if md.volumeNumber:
+            track.ID3.RegisterTXXXKey('series_index', md.volumeNumber)
         # Authors (support multiple if available)
         try:
             # Support custom 'author' EasyID3 key if available
@@ -723,6 +733,7 @@ def cleanMetadata(track, md):
         track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
         track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
         track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
+        track.MP4Tags.RegisterFreeformKey('series_index', "----:com.thovin.series_index")
 
         track.delete()
         track['title'] = md.title
@@ -745,9 +756,10 @@ def cleanMetadata(track, md):
         track['isbn'] = md.isbn
         track['asin'] = md.asin
         track['series'] = md.series
-
-        # if md.volumeNumber != "":   #TODO. disnumber seems misleading, even though a lot of people use it this way. Some use a custom key for series-part or series_index.
-        #     track['discnumber'] = [md.volumeNumber]
+        # Series index (volume number in series) - use custom freeform key
+        # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
+        if md.volumeNumber:
+            track['series_index'] = md.volumeNumber
 
     elif isinstance(track, mp3.MP3):
         log.debug("Cleaning mp3 metadata")
@@ -759,7 +771,10 @@ def cleanMetadata(track, md):
         track.add(mutagen.TPE1(encoding = 3, text = tpe1_text))
         track.add(mutagen.TALB(encoding = 3, text = md.series))
         track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
-        track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
+        # Series index: TPOS is commonly repurposed for series position, but also add custom TXXX for clarity
+        if md.volumeNumber:
+            track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
+            track.add(mutagen.TXXX(encoding = 3, desc='SERIES_INDEX', text = md.volumeNumber))
         # Authors (ID3 TCOM) supports multiple
         if hasattr(md, 'authors') and md.authors:
             track.add(mutagen.TCOM(encoding = 3, text = md.authors))
@@ -780,7 +795,10 @@ def cleanMetadata(track, md):
         
         track['\xa9nam'] = md.title
         track['\xa9day'] = md.publishYear
-        track['trkn'] = [(int(md.volumeNumber), 0)]
+        # Series index (volume number in series) - use custom freeform key
+        # Note: trkn is for track numbers within an album, not series position
+        if md.volumeNumber:
+            track['----:com.thovin:series_index'] = mutagen.mp4.MP4FreeForm(str(md.volumeNumber).encode('utf-8'))
         # Authors (MP4) - support multiple values
         if hasattr(md, 'authors') and md.authors:
             track['\xa9aut'] = md.authors
@@ -806,7 +824,7 @@ def cleanMetadata(track, md):
     log.debug("Metadata cleaned")
     track.save()
 
-
+#TODO Either the template or some part of writing into the opf results in some bad fields
 def createOpf(md):
     log.info("Creating OPF")
     dcLink = "{http://purl.org/dc/elements/1.1/}"
