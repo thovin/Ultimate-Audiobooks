@@ -420,11 +420,11 @@ def fetchMetadata(file, track) -> Metadata:
 
     # Construct search query with parentheses around site restrictions
     if settings.fetch == "audible":
-        searchQuery = f"site:audible.com/pd/ {searchText}"
+        searchQuery = f"audible.com/pd/ {searchText}"
     elif settings.fetch == "goodreads":
-        searchQuery = f"site:goodreads.com {searchText}"
+        searchQuery = f"goodreads.com {searchText}"
     elif settings.fetch == "both":
-        searchQuery = f"(site:audible.com/pd/ OR site:goodreads.com) {searchText}"
+        searchQuery = f"(audible.com/pd/ OR goodreads.com) {searchText}"
 
     # URL-encode the query
     encodedQuery = urllib.parse.quote(searchQuery)
