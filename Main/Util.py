@@ -633,6 +633,7 @@ def getAudioFiles(folderPath, batch = -1, recurse = False):
 def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
+    file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)
     log.info("Converting " + file.name + " to M4B")
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
@@ -649,19 +650,19 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     if settings.move:
         file = sanitizeFile(file)
     else:
-        folder, filename = os.path.split(file)
-        copyFile = shutil.copy(file, os.path.join(folder, f"COPY{filename}"))
+        folder, filename = os.path.split(str(file))
+        copyFile = shutil.copy(str(file), os.path.join(folder, f"COPY{filename}"))
         file = sanitizeFile(copyFile)
 
     cmd = ['ffmpeg',
-           '-i', file,  #input file
+           '-i', str(file),  #input file (convert Path to string for subprocess)
            '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
            # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
            # '-loglevel', 'error',
            '-loglevel', 'warning',
            '-stats',    #adds back the progress bar loglevel hides
-           tempPath]
+           str(tempPath)]  #convert Path to string for subprocess
     
     
     if type == '.mp3':
@@ -905,8 +906,8 @@ def calculateWorkerCount():
     return numCores / 2 if numCores / 2 < availableMemory - 2 else availableMemory - 2
 
 def sanitizeFile(file):
+    file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)
     log.debug("Sanitize in - " + file.name)
-    file = Path(file)
     name = file.name
     parent = str(file.parent)
 
