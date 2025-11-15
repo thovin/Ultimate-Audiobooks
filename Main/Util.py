@@ -412,7 +412,7 @@ def fetchMetadata(file, track) -> Metadata:
     elif md.author != "":
         searchText = md.author
     else:
-        searchText = file.name
+        searchText = file.stem
 
     oldClipboard = pyperclip.paste()
     if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
