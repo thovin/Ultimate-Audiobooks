@@ -72,13 +72,12 @@ def orderByTitle(tracks):
     log.debug("Attempting to order files by name...")
     whichNum = 0
 
-    #TODO no cap on whichNum, makes an infinite loop on failure
     #TODO fails to detect janky disk number formatting in lean mean thirteen
     while True:
         trackMap = {}
         for track in tracks:
             key = findTitleNum(Path(track.filename).stem, whichNum)
-            if key in trackMap:
+            if key in trackMap and key != -1:
                 log.debug("Duplicate track numbers detected at position " + str(whichNum))
                 trackMap = {999:"error"}
                 break
