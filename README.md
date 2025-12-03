@@ -61,6 +61,7 @@ If **fetch** is passed, books will be moved to &lt;outpath&gt;/&lt;author&gt;/&l
   Convert all non-M4B files to `.m4b` (requires ffmpeg).
 
 ### Recursive Processing Mode (choose one)
+Note: Combine and Preserve processing modes can be used on libraries of mixed whole book files and chapter files **as long as** every book has its own folder
 - `-RF, --recurseFetch`  
   Process all files in input and subfolders as separate books.  
 - `-RC, --recurseCombine`  
