@@ -579,7 +579,7 @@ def fetchMetadata(file, track) -> Metadata:
                     log.info("Waiting for URL...")
                     continue
                 break
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
                 log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Copy a book page link, or 'skip'.")
                 pyperclip.copy("Ultimate Audiobooks")
                 md.failed = False
@@ -630,6 +630,7 @@ def getAudioFiles(folderPath, batch = -1, recurse = False):
         return files[:batch]
 
 
+#TODO .m4a is broken
 def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
