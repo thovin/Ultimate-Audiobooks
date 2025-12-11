@@ -116,7 +116,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Configure logging based on args
-    numeric_level = getattr(log, args.loglevel, log.INFO)
+    numeric_level = getattr(log, args.logLevel, log.INFO)
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
     
     log.info("Parsing arguments")
