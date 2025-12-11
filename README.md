@@ -74,7 +74,7 @@ Note: Combine and Preserve processing modes can be used on libraries of mixed wh
   Max number of books per run. Default = 10.  
 - `-Q, --quick`  
   Skip settings confirmation (for scripting).  
-- `-LL, --loglevel [DEBUG|INFO|WARNING|ERROR|CRITICAL]`  
+- `-LL, --logLevel [DEBUG|INFO|WARNING|ERROR|CRITICAL]`  
   Set logging verbosity. Default = INFO. Useful for debugging or reducing console output.  
 - `-S, --save` / `-L, --load` / `-D, --default`  
   Save, load, or reset settings (**not yet implemented**).  
