@@ -102,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
     parser.add_argument("-I", "--input", required = True) #input folder
     parser.add_argument("-L", "--load", action = "store_true")  #load saved settings
-    parser.add_argument("-LL", "--loglevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
+    parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
     parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
