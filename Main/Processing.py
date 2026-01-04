@@ -66,16 +66,23 @@ def processConversions():
 #TODO print log info place in batch
 def processFile(file):
     log.info(f"Processing {file.name}")
-    track = mutagen.File(file, easy=True)
     type = Path(file).suffix.lower()
     md = Metadata()
     md.bookPath = settings.output
     newPath = ""
 
+    try:
+        track = mutagen.File(file, easy=True)
+    except mutagen.mp3.HeaderNotFoundError:
+        log.error("File \"" + str(file) + "\" corrupt or otherwise unreadable as audio. Marking as failed...")
+        md.failed = True
+        fails.append(file)
+        return
+
     if track == None:
-        log.error("File unable to be processed. Check for corruption. Skipping...")
-        md.skip = True
-        skips.append(file)
+        log.error("File unable to be processed. Check for corruption. Marking as failed...")
+        md.failed = True
+        fails.append(file)
         return
 
 
