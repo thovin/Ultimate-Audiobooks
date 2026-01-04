@@ -7,7 +7,9 @@ import logging
 import tempfile
 from pathlib import Path
 import os
+import shutil
 from Util import sanitizeFile, getAudioFiles
+from BookStatus import skipBook, failBook, setOriginalPath
 
 log = logging.getLogger(__name__)
 settings = None
@@ -68,7 +70,7 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
     return chapters
 
 
-def orderByTitle(tracks):
+def orderByTitle(tracks, folderPath=None):
     log.debug("Attempting to order files by name...")
     whichNum = 0
 
@@ -86,7 +88,6 @@ def orderByTitle(tracks):
         ordered = sorted(trackMap.keys())
 
         if -1 in trackMap:
-            #TODO skip this book
             log.debug("Failed to order files by name")
             return []   #no more numbers, no order beginning in 1
         elif ordered[0] != 0 and ordered[0] != 1:
@@ -100,7 +101,6 @@ def orderByTitle(tracks):
     
 
 def mergeBook(folderPath, outPath = False, move = False):
-    #TODO figure out how to properly skip/fail books at this stage
     log.debug("Begin merging chapters in " + folderPath.name)
     files = list(folderPath.glob("*.mp*"))
     hasMultipleDisks = False
@@ -128,7 +128,7 @@ def mergeBook(folderPath, outPath = False, move = False):
             copyFile = shutil.copy(files[i], os.path.join(path, f"COPY{name}"))
             files[i] = sanitizeFile(copyFile)
     
-    pieces = orderFiles(files)
+    pieces = orderFiles(files, folderPath)
 
     if len(pieces) == 0:
         return
@@ -155,6 +155,10 @@ def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin combining")
     try:
         subprocess.run(cmd, check=True)
+        
+        # Register original path for merged file in temp folder
+        if outPath:
+            setOriginalPath(newFilepath, folderPath)
 
         if move:
             with open(tempConcatFilePath, 'r') as t:
@@ -162,7 +166,7 @@ def mergeBook(folderPath, outPath = False, move = False):
                     os.remove(line[5:].strip().strip('\''))
 
     except subprocess.CalledProcessError as e:
-        log.error("ffmpeg has encountered an error while combining chapters. Skipping book...")
+        failBook(folderPath, "ffmpeg error during chapter merge")
         return
     
     os.remove(tempConcatFilePath)
@@ -170,13 +174,18 @@ def mergeBook(folderPath, outPath = False, move = False):
 
     return newFilepath
 
-def orderFiles(files):
+def orderFiles(files, folderPath=None):
     pieces = []
     tracks = []
     hasMultipleDisks = False
 
     for file in files:
-        track = mutagen.File(file, easy=True)
+        try:
+            track = mutagen.File(file, easy=True)
+        except mutagen.mp3.HeaderNotFoundError:
+            failBook(folderPath, "Corrupt or unreadable audio file")
+            return []
+
         tracks.append(track)
 
         try:
@@ -192,10 +201,11 @@ def orderFiles(files):
         pass
 
     if len(pieces) == 0:
-        pieces = orderByTitle(tracks)
+        pieces = orderByTitle(tracks, folderPath)
 
     if len(pieces) == 0:
-        log.error("Failed to order files. Skipping book...")
+        if folderPath:
+            failBook(folderPath, "Failed to order files")
     else:
         log.debug("Pieces ordered")
 
@@ -257,7 +267,11 @@ def combineAndFindChapters(startPath, outPath, counter, root):
         pass
     elif len(files) == 1:
         counter += 1
-        files[0].rename(outPath / f"{files[0].name}")
+        originalFile = files[0]
+        newFile = outPath / f"{files[0].name}"
+        files[0].rename(newFile)
+        # Register original path for files moved to temp folder
+        setOriginalPath(newFile, originalFile)
     elif len(files) > 1:
         counter += 1
         mergeBook(startPath, outPath, settings.move)

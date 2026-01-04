@@ -3,6 +3,7 @@ from Settings import getSettings
 from pathlib import Path
 from Util import *
 from FileMerger import combineAndFindChapters
+from BookStatus import skipBook, failBook
 import os
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
@@ -12,8 +13,6 @@ import math
 log = logging.getLogger(__name__)
 settings = None
 conversions = []
-skips = []
-fails = []
 
 def loadSettings():
     global settings
@@ -66,16 +65,19 @@ def processConversions():
 #TODO print log info place in batch
 def processFile(file):
     log.info(f"Processing {file.name}")
-    track = mutagen.File(file, easy=True)
     type = Path(file).suffix.lower()
     md = Metadata()
     md.bookPath = settings.output
     newPath = ""
 
+    try:
+        track = mutagen.File(file, easy=True)
+    except mutagen.mp3.HeaderNotFoundError:
+        failBook(file, "Corrupt or unreadable audio file")
+        return
+
     if track == None:
-        log.error("File unable to be processed. Check for corruption. Skipping...")
-        md.skip = True
-        skips.append(file)
+        failBook(file, "Unable to process file")
         return
 
 
@@ -83,11 +85,8 @@ def processFile(file):
         #existing OPF is ignored in single level batch
         md = fetchMetadata(file, track)
 
-        if md.skip:
-            skips.append(file)
-            return
-        elif md.failed:
-            fails.append(file)
+        if md is None:
+            # Book was skipped or failed during metadata fetch
             return
 
         #TODO (rename) set md.bookPath according to rename
@@ -121,13 +120,6 @@ def processFile(file):
         #TODO rename
         #again, only apply to copy
         pass
-    
-    if md.skip:
-        skips.append(file)
-        return
-    elif md.failed:
-        fails.append(file)
-        return
     
     if newPath == "":
         newPath = getUniquePath(file.name, md.bookPath)
@@ -185,8 +177,6 @@ def singleLevelBatch(infolder = None):
     if len(conversions) > 0:
         processConversions()
 
-    moveSkipsFails()
-
     log.info("Batch completed. Enjoy your audiobooks!")
 
 
@@ -201,32 +191,7 @@ def recursivelyFetchBatch():    #Since the only difference is passing true to ge
     if len(conversions) > 0:
         processConversions()
 
-    moveSkipsFails()
-
     log.info("Batch completed. Enjoy your audiobooks!")
 
  
     return
-
-def moveSkipsFails():
-    infolder = Path(settings.input)
-    if len(skips) > 0:
-        log.info(str(len(skips)) + " skips. Moving to skip directory...")
-        skipDir = infolder.parent.joinpath("Ultimate Audiobook skips")
-        skipDir.mkdir()
-
-        for file in skips:
-            file.rename(skipDir / file.name)
-    if len(fails) > 0:
-        log.info(str(len(fails)) + " fails. Moving to fail directory...") #TODO what will happen with chapter books that failed in merge?
-        failDir = infolder.parent.joinpath("Ultimate Audiobook fails")
-        failDir.mkdir()
-
-        for file in fails:
-            file.rename(failDir / file.name)
-
-def skipBook(file):
-    skips.append(file)
-
-def failBook(file):
-    fails.append(file)

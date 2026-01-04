@@ -3,6 +3,7 @@ import Settings
 import Util
 import Processing
 import FileMerger
+import BookStatus
 import logging as log
 from pathlib import Path
 import sys
@@ -64,6 +65,7 @@ def main(args):
     Util.loadSettings()
     Processing.loadSettings()
     FileMerger.loadSettings()
+    BookStatus.loadSettings()
 
     log.debug("Creating output directory if not exists: " + settings.output)
     Path(settings.output).mkdir(parents = True, exist_ok = True)
@@ -88,6 +90,9 @@ def processBooks():
 
     else:
         Processing.singleLevelBatch()
+    
+    # Final summary (in case any were missed or for overall view)
+    BookStatus.printSummary()
 
 
 if __name__ == "__main__":
@@ -119,7 +124,6 @@ if __name__ == "__main__":
     numeric_level = getattr(log, args.logLevel, log.INFO)
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
     
-    log.info("Parsing arguments")
     log.debug("Arguments parsed successfully")
 
     final_message = ""
