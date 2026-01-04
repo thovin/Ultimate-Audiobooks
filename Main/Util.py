@@ -18,6 +18,7 @@ import platform
 import urllib.parse
 import re
 import json
+from BookStatus import skipBook, failBook
 
 log = logging.getLogger(__name__)
 settings = None
@@ -45,8 +46,6 @@ class Metadata:
         self.seriesMulti = []
         self.volumeNumber = ""
         self.bookPath = ""
-        self.skip = False
-        self.failed = False
 
 class Conversion:
     def __init__(self, file, track, type, md):
@@ -132,9 +131,10 @@ def getAuthor(track):
     
     
 
-def GETpage(url, md):
+def GETpage(url):
     log.info("GET page: " + url)
     timer = 2
+    page = None
     while True:
         try:
             page = requests.get(url)
@@ -145,25 +145,22 @@ def GETpage(url, md):
                 time.sleep(timer)
                 timer *= 1.5
             elif timer >= 10:
-                md.failed = True
-                break
-
-    if md.failed:
-        log.error("metadata shows failed, aborting GET")
-        return page
+                log.error("metadata shows failed, aborting GET")
+                return None
+    
+    if page is None:
+        return None
     
     if page.status_code != requests.codes.ok:
         log.error("Status code not OK, aborting GET")
-        md.failed = True
-        return page
+        return None
     
     try:
         page.raise_for_status()
         return page
     except Exception as e:
         log.error("Raise for status failed, aborting GET")
-        md.failed = True
-        return page
+        return None
     
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
@@ -519,9 +516,8 @@ def fetchMetadata(file, track) -> Metadata:
         if currClipboard == tempClipboard:
             continue
         elif currClipboard.upper() == "SKIP":
-            log.info("Detected skip, skipping book")
-            md.skip = True
-            break
+            skipBook(file, "User skipped during metadata fetch")
+            return None
         elif "audible.com" in currClipboard:
             log.debug("Audible URL captured: " + currClipboard)
             # Robustly extract ASIN from path or query, ignoring extra query params
@@ -544,24 +540,21 @@ def fetchMetadata(file, track) -> Metadata:
                 if not asin_match:
                     log.error("Unable to extract ASIN from Audible URL. Please copy a book page link and try again, or copy 'skip' to skip this book.")
                     pyperclip.copy("Ultimate Audiobooks")
-                    md.failed = False
                     log.info("Waiting for URL...")
                     continue
                 md.asin = asin_match
             except Exception:
                 log.exception("Error parsing Audible URL")
                 pyperclip.copy("Ultimate Audiobooks")
-                md.failed = False
                 log.info("Waiting for URL...")
                 continue
 
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
-            page = GETpage(targetUrl, md)
-            if md.failed or not getattr(page, "ok", False):
+            page = GETpage(targetUrl)
+            if page is None or not getattr(page, "ok", False):
                 log.error("Audible API request failed. Please copy a valid book page link, or copy 'skip' to skip.")
                 pyperclip.copy("Ultimate Audiobooks")
-                md.failed = False
                 log.info("Waiting for URL...")
                 continue
 
@@ -575,14 +568,12 @@ def fetchMetadata(file, track) -> Metadata:
                 if not md.title or not md.author:
                     log.error("Audible link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
                     pyperclip.copy("Ultimate Audiobooks")
-                    md.failed = False
                     log.info("Waiting for URL...")
                     continue
                 break
             except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
                 log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Copy a book page link, or 'skip'.")
                 pyperclip.copy("Ultimate Audiobooks")
-                md.failed = False
                 log.info("Waiting for URL...")
                 continue
 
@@ -590,14 +581,18 @@ def fetchMetadata(file, track) -> Metadata:
 
         elif "goodreads.com" in currClipboard:
             log.debug("Goodreads URL captured: " + currClipboard)
-            page = GETpage(currClipboard, md)
+            page = GETpage(currClipboard)
+            if page is None:
+                log.error("Goodreads page request failed. Please copy a valid book page link, or copy 'skip' to skip.")
+                pyperclip.copy("Ultimate Audiobooks")
+                log.info("Waiting for URL...")
+                continue
             soup = BeautifulSoup(page.text, 'html.parser')
             parseGoodreadsMd(soup, md)
             # Safety net: ensure required fields present
             if not md.title or not md.author:
                 log.error("Goodreads link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
                 pyperclip.copy("Ultimate Audiobooks")
-                md.failed = False
                 log.info("Waiting for URL...")
                 continue
             break
@@ -675,8 +670,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             return tempPath.rename(newPath)
 
         except subprocess.CalledProcessError as e:
-            log.error(f"Conversion failed! Aborting file...")
-            md.failed = True
+            failBook(file, "Conversion failed")
             return file
 
     elif type == '.mp4':
@@ -731,11 +725,16 @@ def cleanMetadata(track, md):
         log.debug("Cleaning easymp4 metadata")
         track.RegisterTextKey('narrator', '@nrt')
         track.RegisterTextKey('author', '@aut')
-        track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
-        track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
-        track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
-        track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
-        track.MP4Tags.RegisterFreeformKey('series_index', "----:com.thovin.series_index")
+        # track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
+        track.MP4Tags.RegisterFreeformKey('publisher', "publisher", 'com.UltimateAudiobooks')
+        # track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
+        track.MP4Tags.RegisterFreeformKey('isbn', "isbn", 'com.UltimateAudiobooks')
+        # track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
+        track.MP4Tags.RegisterFreeformKey('asin', "asin", 'com.UltimateAudiobooks')
+        # track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
+        track.MP4Tags.RegisterFreeformKey('series', "series", 'com.UltimateAudiobooks')
+        # track.MP4Tags.RegisterFreeformKey('series_index', "----:com.thovin.series_index")
+        track.MP4Tags.RegisterFreeformKey('series_index', "series_index", "com.UltimateAudiobooks")
 
         track.delete()
         track['title'] = md.title
