@@ -702,11 +702,12 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         log.debug("Converting FLAC to M4B")
         cmd_flac = ['ffmpeg',
                     '-i', str(file),
-                    '-c:a', 'aac',
-                    '-q:a', '3',
-                    '-vn',
-                    '-loglevel', 'warning',
-                    '-stats',
+                    '-c:a', 'aac',  #transcode to AAC (FLAC can't be stream-copied into MP4 container)
+                    '-q:a', '3',  #VBR quality ~128-160kbps
+                    '-vn',  #disable video
+                    '-hide_banner',  #suppress version/build info header
+                    '-loglevel', 'error',
+                    '-stats',  #adds back the progress bar loglevel hides
                     str(tempPath)]
         try:
             subprocess.run(cmd_flac, check=True)
