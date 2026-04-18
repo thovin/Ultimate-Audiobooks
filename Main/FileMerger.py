@@ -108,10 +108,20 @@ def mergeBook(folderPath, outPath = False, move = False):
     if len(files) < 1:
         files = list(folderPath.glob("*.m4*"))
 
+    if len(files) < 1:
+        files = list(folderPath.glob("*.flac"))
+
+    isFlac = files[0].suffix.lower() == '.flac'
+    # FLAC chapters are merged directly to M4B/AAC: stream-copy via concat doesn't update
+    # FLAC's internal sample numbers, causing non-monotonic DTS. Transcoding in one pass
+    # avoids a broken intermediate file and a redundant decode/encode cycle.
+    outSuffix = '.m4b' if isFlac else files[0].suffix
+    codec_args = ['-c:a', 'aac', '-q:a', '3'] if isFlac else ['-codec', 'copy']
+
     if outPath:
-        newFilepath = outPath / (folderPath.name + " - " + files[0].name)
+        newFilepath = outPath / (folderPath.name + " - " + files[0].stem + outSuffix)
     else:
-        newFilepath = folderPath / (folderPath.name + " - " + files[0].name)
+        newFilepath = folderPath / (folderPath.name + " - " + files[0].stem + outSuffix)
 
     log.debug(str(len(files)) + " chapters detected")
 
@@ -119,7 +129,6 @@ def mergeBook(folderPath, outPath = False, move = False):
     #TODO process merges at end like conversions?
     #TODO improve processing for multiple disks not in metadata
 
-    
     for i in range(len(files)):
         if settings.move:
             files[i] = sanitizeFile(files[i])
@@ -127,27 +136,26 @@ def mergeBook(folderPath, outPath = False, move = False):
             path, name = os.path.split(files[i])
             copyFile = shutil.copy(files[i], os.path.join(path, f"COPY{name}"))
             files[i] = sanitizeFile(copyFile)
-    
+
     pieces = orderFiles(files, folderPath)
 
     if len(pieces) == 0:
         return
-        
+
     # TODO When sanitizing chapter files, worth trying to keep the original name in chapter metadata?
     tempConcatFilePath, tempChapFilePath = createTempFiles(pieces, folderPath)
 
-    cmd = ['ffmpeg', 
+    cmd = ['ffmpeg',
         '-f', 'concat',
         '-safe', '0',
         '-i', tempConcatFilePath,
         '-i', tempChapFilePath, "-map_metadata", "1",
-        '-codec', 'copy',    #copy audio streams instead of re-encoding
+        *codec_args,
         '-vn',   #disable video
-        # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
-        # '-loglevel', 'error',
-        '-loglevel', 'warning',
+        '-hide_banner',  #suppress version/build info header
+        '-loglevel', 'error',
         '-stats',    #adds back the progress bar loglevel hides
-        newFilepath #we could convert to mp4 while already doing the operation, but I prefer the cleanliness of separation of duties
+        newFilepath
         ]
 
         #TODO manually parse out ffmpeg warnings like "Error reading comment frame, skipped", "Incorrect BOM value", "Application provided invalid, non monotonically increasing dts to muxer in <stream 0: 182540921472 >= 182539260288>"
