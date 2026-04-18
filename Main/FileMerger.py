@@ -108,6 +108,9 @@ def mergeBook(folderPath, outPath = False, move = False):
     if len(files) < 1:
         files = list(folderPath.glob("*.m4*"))
 
+    if len(files) < 1:
+        files = list(folderPath.glob("*.flac"))
+
     if outPath:
         newFilepath = outPath / (folderPath.name + " - " + files[0].name)
     else:

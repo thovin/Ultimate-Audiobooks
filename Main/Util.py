@@ -2,7 +2,7 @@ from Settings import getSettings
 from pathlib import Path
 from itertools import islice
 import mutagen
-from mutagen import easymp4, mp3, mp4
+from mutagen import easymp4, mp3, mp4, flac
 import webbrowser
 import time
 import requests
@@ -83,8 +83,17 @@ def getTitle(track):
             log.debug("No title found. Returning empty string")
             return ""
 
+    elif isinstance(track, flac.FLAC):
+        if 'title' in track and track['title']:
+            return track['title'][0]
+        elif 'album' in track and track['album']:
+            return track['album'][0]
+        else:
+            log.debug("No title found. Returning empty string")
+            return ""
+
     else:
-        log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get title")
+        log.error("Track is not detected as MP3, MP4, M4A/B, or FLAC. Unable to get title")
         return ""
 
 
@@ -125,8 +134,20 @@ def getAuthor(track):
         else:
             log.debug("No author found. Returning empty string")
             return ""
+
+    elif isinstance(track, flac.FLAC):
+        if 'artist' in track and track['artist']:
+            return track['artist'][0]
+        elif 'composer' in track and track['composer']:
+            return track['composer'][0]
+        elif 'albumartist' in track and track['albumartist']:
+            return track['albumartist'][0]
+        else:
+            log.debug("No author found. Returning empty string")
+            return ""
+
     else:
-        log.error("Track is not detected as MP3, MP4, or M4A/B. Unable to get author")
+        log.error("Track is not detected as MP3, MP4, M4A/B, or FLAC. Unable to get author")
         return ""
     
     
@@ -607,13 +628,13 @@ def getAudioFiles(folderPath, batch = -1, recurse = False):
     if recurse:
         files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
         files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
-        # files.extend(list(folderPath.rglob("*.flac")))  #flac
+        files.extend(list(folderPath.rglob("*.flac")))
         # files.extend(list(folderPath.rglob("*.wma")))  #wma
         # files.extend(list(folderPath.rglob("*.wav")))  #wav
     else:
         files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
         files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
-        # files.extend(list(folderPath.glob("*.flac")))  #flac
+        files.extend(list(folderPath.glob("*.flac")))
         # files.extend(list(folderPath.glob("*.wma")))  #wma
         # files.extend(list(folderPath.glob("*.wav")))  #wav
 
@@ -676,6 +697,24 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
     elif type == '.mp4':
         log.debug("Converting MP4 to M4B")
         return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
+
+    elif type == '.flac':
+        log.debug("Converting FLAC to M4B")
+        cmd_flac = ['ffmpeg',
+                    '-i', str(file),
+                    '-c:a', 'aac',
+                    '-q:a', '3',
+                    '-vn',
+                    '-loglevel', 'warning',
+                    '-stats',
+                    str(tempPath)]
+        try:
+            subprocess.run(cmd_flac, check=True)
+            file.unlink()
+            return tempPath.rename(newPath)
+        except subprocess.CalledProcessError as e:
+            failBook(file, "Conversion failed")
+            return file
 
 
 def cleanMetadata(track, md):
@@ -818,8 +857,49 @@ def cleanMetadata(track, md):
         track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
         track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
 
+    elif isinstance(track, flac.FLAC):
+        log.debug("Cleaning FLAC metadata")
+        if track.tags:
+            track.tags.clear()
+        else:
+            track.add_tags()
+        if md.title:
+            track['title'] = [md.title]
+        if hasattr(md, 'narrators') and md.narrators:
+            narrs = md.narrators if isinstance(md.narrators, list) else [md.narrators]
+            track['artist'] = narrs
+            track['narrator'] = narrs
+        elif md.narrator:
+            track['artist'] = [md.narrator]
+            track['narrator'] = [md.narrator]
+        if md.series:
+            track['album'] = [md.series]
+            track['grouping'] = [md.series]
+        if md.publishYear:
+            track['date'] = [md.publishYear]
+        if hasattr(md, 'authors') and md.authors:
+            authors = md.authors if isinstance(md.authors, list) else [md.authors]
+            track['composer'] = authors
+            track['author'] = authors
+        elif md.author:
+            track['composer'] = [md.author]
+            track['author'] = [md.author]
+        if hasattr(md, 'genres') and md.genres:
+            track['genre'] = md.genres if isinstance(md.genres, list) else [md.genres]
+        if md.summary:
+            track['description'] = [md.summary]
+            track['comment'] = [md.summary]
+        if md.publisher:
+            track['publisher'] = [md.publisher]
+        if md.isbn:
+            track['isbn'] = [md.isbn]
+        if md.asin:
+            track['asin'] = [md.asin]
+        if md.volumeNumber:
+            track['series_index'] = [str(md.volumeNumber)]
+
     else:
-        log.error("Audio file not detected as MP3, MP4, or M4A/B. Unable to clean metadata.")
+        log.error("Audio file not detected as MP3, MP4, M4A/B, or FLAC. Unable to clean metadata.")
         return
 
     log.debug("Metadata cleaned")
