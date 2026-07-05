@@ -30,8 +30,8 @@ def processConversion(c, settings): #This is run through ProcessPoolExecutor, wh
 
     track = mutagen.File(file, easy=True)
 
-    if settings.fetch and settings.clean and settings.move:
-        #if copying, we will only clean the copied file
+    if settings.fetch and settings.clean:
+        #the converted file is a new file in both move and copy modes, so always safe to clean
         cleanMetadata(track, md)
     
     if settings.rename:
@@ -134,7 +134,7 @@ def processFile(file):
         log.info("Copying " + file.name + " to " + md.bookPath)
         shutil.copy(file, newPath)
 
-        if settings.fetch:
+        if settings.fetch and settings.clean:
             cleanMetadata(mutagen.File(newPath, easy=True), md)
 
         

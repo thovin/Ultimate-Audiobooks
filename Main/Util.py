@@ -731,6 +731,15 @@ def cleanMetadata(track, md):
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
 
+        # RegisterTXXXKey maps an easy key name to a TXXX frame description (it does not write values).
+        # Register the custom keys once, then assign values through the easy interface below.
+        track.ID3.RegisterTXXXKey('description', 'description')
+        track.ID3.RegisterTXXXKey('subtitle', 'subtitle')
+        track.ID3.RegisterTXXXKey('isbn', 'isbn')
+        track.ID3.RegisterTXXXKey('publisher', 'publisher')
+        track.ID3.RegisterTXXXKey('series_index', 'series_index')
+        track.ID3.RegisterTXXXKey('author', 'author')
+
         track.delete()
         track['title'] = md.title
         # Narrators (support multiple if available)
@@ -743,36 +752,28 @@ def cleanMetadata(track, md):
         # Series index (volume number in series) - use custom TXXX tag
         # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
         if md.volumeNumber:
-            track.ID3.RegisterTXXXKey('series_index', md.volumeNumber)
+            track['series_index'] = md.volumeNumber
         # Authors (support multiple if available)
-        try:
-            # Support custom 'author' EasyID3 key if available
-            if hasattr(md, 'authors') and md.authors:
-                track['author'] = md.authors
-            else:
-                track['author'] = md.author
-        except Exception:
-            # Fallback to composer for author if custom key unsupported
-            if hasattr(md, 'authors') and md.authors:
-                track['composer'] = md.authors
-            else:
-                track['composer'] = md.author
+        if hasattr(md, 'authors') and md.authors:
+            track['author'] = md.authors
+            track['composer'] = md.authors
+        else:
+            track['author'] = md.author
+            track['composer'] = md.author
         # Genres (support multiple)
-        try:
-            if hasattr(md, 'genres') and md.genres:
-                track['genre'] = md.genres
-        except Exception:
-            pass
+        if hasattr(md, 'genres') and md.genres:
+            track['genre'] = md.genres
         track['asin'] = md.asin
-        track.ID3.RegisterTXXXKey('description', md.summary)
-        track.ID3.RegisterTXXXKey('subtitle', md.subtitle)
-        track.ID3.RegisterTXXXKey('isbn', md.isbn)
-        track.ID3.RegisterTXXXKey('publisher', md.publisher)
+        track['description'] = md.summary
+        track['subtitle'] = md.subtitle
+        track['isbn'] = md.isbn
+        track['publisher'] = md.publisher
 
     elif isinstance(track, easymp4.EasyMP4):
         log.debug("Cleaning easymp4 metadata")
-        track.RegisterTextKey('narrator', '@nrt')
-        track.RegisterTextKey('author', '@aut')
+        #MP4 atom names use the copyright sign prefix (\xa9), not '@'
+        track.RegisterTextKey('narrator', '\xa9nrt')
+        track.RegisterTextKey('author', '\xa9aut')
         # track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
         track.MP4Tags.RegisterFreeformKey('publisher', "publisher", 'com.UltimateAudiobooks')
         # track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
