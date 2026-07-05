@@ -61,7 +61,7 @@ def _wait_for_keypress(prompt: str = "Press any key to exit...") -> None:
 def applySavedSettings(args, parser):
     #Saved values fill in for any option not explicitly given on the command line.
     try:
-        with open('settings.json', 'r') as inFile:
+        with open(Settings.SETTINGS_FILE, 'r') as inFile:
             saved = json.load(inFile)
     except FileNotFoundError:
         log.warning("No saved settings found (settings.json). Skipping load.")
@@ -127,11 +127,12 @@ if __name__ == "__main__":
     parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
     parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
     parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPF"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
-    parser.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default
+    savedSettings = parser.add_mutually_exclusive_group()
+    savedSettings.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default (deletes settings.json)
     parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
     parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
     parser.add_argument("-I", "--input", required = True) #input folder
-    parser.add_argument("-L", "--load", action = "store_true")  #load saved settings
+    savedSettings.add_argument("-L", "--load", action = "store_true")  #load saved settings. Exclusive with --default
     parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
@@ -151,6 +152,13 @@ if __name__ == "__main__":
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
     
     log.debug("Arguments parsed successfully")
+
+    if args.default:
+        try:
+            Settings.SETTINGS_FILE.unlink()
+            log.info("Saved settings reset to defaults (settings.json deleted)")
+        except FileNotFoundError:
+            log.info("No saved settings to reset")
 
     if args.load:
         applySavedSettings(args, parser)

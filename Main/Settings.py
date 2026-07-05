@@ -7,6 +7,9 @@ import os
 
 log = logging.getLogger(__name__)
 
+#anchored next to the script so save/load work regardless of launch directory
+SETTINGS_FILE = Path(__file__).resolve().parent / 'settings.json'
+
 settings = None
 
 class Settings:
@@ -37,7 +40,7 @@ class Settings:
         settingsMap = self.__dict__
         settingsJSON = json.dumps(settingsMap)
 
-        with open ('settings.json', 'w') as outFile:
+        with open (SETTINGS_FILE, 'w') as outFile:
             outFile.write(settingsJSON)
 
     def confirm(self):
