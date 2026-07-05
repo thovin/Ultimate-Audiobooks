@@ -1,6 +1,5 @@
 from Settings import getSettings
 from pathlib import Path
-from itertools import islice
 import mutagen
 from mutagen import easymp4, mp3, mp4, flac
 import webbrowser
@@ -22,7 +21,6 @@ from BookStatus import skipBook, failBook
 
 log = logging.getLogger(__name__)
 settings = None
-conversions = []
 
 def loadSettings():
     global settings
@@ -48,9 +46,9 @@ class Metadata:
         self.bookPath = ""
 
 class Conversion:
-    def __init__(self, file, track, type, md):
+    #instances are pickled to ProcessPoolExecutor workers, so hold only simple values (no mutagen objects)
+    def __init__(self, file, type, md):
         self.file = file
-        self.track = track
         self.type = type
         self.md = md
 
@@ -66,23 +64,6 @@ def getTitle(track):
         else:
             log.debug("No title found. Returning empty string")
             return ""
-    elif isinstance(track, mp3.MP3):
-        if 'TIT2' in track and track['TIT2'] != "":
-            return track['TIT2']
-        elif 'TALB' in track and track['TALB'] != "":
-            return track['TALB']
-        else:
-            log.debug("No title found. Returning empty string")
-            return ""
-    elif isinstance(track, mp4.MP4):
-        if '\xa9nam' in track and track['\xa9nam'] != "":
-            return track['\xa9nam']
-        elif '\xa9alb' in track and track['\xa9alb'] != "":
-            return track['\xa9alb']
-        else:
-            log.debug("No title found. Returning empty string")
-            return ""
-
     elif isinstance(track, flac.FLAC):
         if 'title' in track and track['title']:
             return track['title'][0]
@@ -112,29 +93,6 @@ def getAuthor(track):
         else:
             log.debug("No author found. Returning empty string")
             return ""
-    elif isinstance(track, mp3.MP3):
-        if 'TPE1' in track and track['TPE1'] != "":
-            return track['TPE1']
-        elif 'TCOM' in track and track['TCOM'] != "":
-            return track['TCOM']
-        elif 'TPE2' in track and track['TPE2'] != "":
-            return track['TPE2']
-        elif 'TEXT' in track and track['TEXT'] != "":
-            return track['TEXT']
-        else:
-            log.debug("No author found. Returning empty string")
-            return ""
-    elif isinstance(track, mp4.MP4):
-        if '\xa9ART' in track and track['\xa9ART'] != "":
-            return track['\xa9ART']
-        elif 'soco' in track and track['soco'] != "":
-            return track['soco']
-        elif 'aART' in track and track['aART'] != "":
-            return track['aART']
-        else:
-            log.debug("No author found. Returning empty string")
-            return ""
-
     elif isinstance(track, flac.FLAC):
         if 'artist' in track and track['artist']:
             return track['artist'][0]
@@ -194,25 +152,25 @@ def parseAudibleMd(info, md):
         else:
             log.debug("No authors found in audible JSON")
     except Exception as e:
-        log.debug("Exeption parsing author in audible JSON")
+        log.debug("Exception parsing author in audible JSON")
 
     try: #title
         md.title = info['title']
     except Exception as e:
-        log.debug("Exeption parsing title in audible JSON")
+        log.debug("Exception parsing title in audible JSON")
 
 
     try: #summary
         rawSummary = BeautifulSoup(info['publisher_summary'], 'html.parser')
         md.summary = rawSummary.getText()
     except Exception as e:
-        log.debug("Exeption parsing summary in audible JSON")
+        log.debug("Exception parsing summary in audible JSON")
 
 
     try: #subtitle
         md.subtitle = info['subtitle']
     except Exception as e:
-        log.debug("Exeption parsing subtitle in audible JSON")
+        log.debug("Exception parsing subtitle in audible JSON")
 
 
     try: #narrators
@@ -224,22 +182,20 @@ def parseAudibleMd(info, md):
             for n in info['narrators']:
                 md.narrators.append(n['name'])
 
-        md.narrator = info['narrators'][0]['name']
-
     except Exception as e:
-        log.debug("Exeption parsing narrator in audible JSON")
+        log.debug("Exception parsing narrator in audible JSON")
 
 
     try: #publisher
         md.publisher = info['publisher_name']
     except Exception as e:
-        log.debug("Exeption parsing publisher in audible JSON")
+        log.debug("Exception parsing publisher in audible JSON")
 
 
     try: #publish year
         md.publishYear = info['release_date'][:4]
     except Exception as e:
-        log.debug("Exeption parsing release year in audible JSON")
+        log.debug("Exception parsing release year in audible JSON")
 
 
     try: #genres (multiple supported)
@@ -283,24 +239,24 @@ def parseAudibleMd(info, md):
                 unique_genres.append(g)
         md.genres = unique_genres
     except Exception as e:
-        log.debug("Exeption parsing genres in audible JSON")
+        log.debug("Exception parsing genres in audible JSON")
 
 
     try: #series
         md.series = info['series'][0]['title']
     except Exception as e:
-        log.debug("Exeption parsing series in audible JSON")
+        log.debug("Exception parsing series in audible JSON")
 
 
     try: #volume num
         md.volumeNumber = info['series'][0]['sequence']
     except Exception as e:
-        log.debug("Exeption parsing volume number in audible JSON")
+        log.debug("Exception parsing volume number in audible JSON")
 
     try: #asin
         md.asin = info['asin']
     except Exception as e:
-        log.debug("Exeption parsing ASIN in audible JSON")
+        log.debug("Exception parsing ASIN in audible JSON")
 
     
 
@@ -310,7 +266,7 @@ def parseGoodreadsMd(soup, md):
     try:
         md.title = soup.find('h1', class_="Text Text__title1").text.strip()
     except Exception as e:
-        log.debug("Exeption parsing title from goodreads")
+        log.debug("Exception parsing title from goodreads")
 
     # Authors (multiple)
     try:
@@ -332,12 +288,12 @@ def parseGoodreadsMd(soup, md):
             if len(md.authors) > 0:
                 md.author = md.authors[0]
     except Exception as e:
-        log.debug("Exeption parsing authors from goodreads")
+        log.debug("Exception parsing authors from goodreads")
 
     try:    #if multiple classes, use wrapper div instead
         md.summary = soup.find('span', class_="Formatted").text.strip()
     except Exception as e:
-        log.debug("Exeption parsing summary from goodreads")
+        log.debug("Exception parsing summary from goodreads")
     
     # Publisher, Publish Year, ISBN
     try:
@@ -361,7 +317,7 @@ def parseGoodreadsMd(soup, md):
             if 10 <= len(candidate) <= 13:
                 md.isbn = candidate
     except Exception as e:
-        log.debug("Exeption parsing publisher/publish year/ISBN from goodreads")
+        log.debug("Exception parsing publisher/publish year/ISBN from goodreads")
 
 
     # Genres (multiple)
@@ -390,7 +346,7 @@ def parseGoodreadsMd(soup, md):
                 unique_genres.append(g)
         md.genres = unique_genres
     except Exception as e:
-        log.debug("Exeption parsing genres from goodreads")
+        log.debug("Exception parsing genres from goodreads")
 
 
         
@@ -398,14 +354,14 @@ def parseGoodreadsMd(soup, md):
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.series = temp[ : temp.find('#') - 1]
     except Exception as e:
-        log.debug("Exeption parsing series from goodreads")
+        log.debug("Exception parsing series from goodreads")
 
 
     try:
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.volumeNumber = temp[temp.find('#') + 1: ]
     except Exception as e:
-        log.debug("Exeption parsing volume number from goodreads")
+        log.debug("Exception parsing volume number from goodreads")
 
 
 def fetchMetadata(file, track) -> Metadata:
@@ -613,26 +569,14 @@ def fetchMetadata(file, track) -> Metadata:
 
 
 
-def getAudioFiles(folderPath, batch = -1, recurse = False):
-    files = []
+AUDIO_EXTENSIONS = {'.m4a', '.m4b', '.mp3', '.mp4', '.flac'}  #TODO consider .wma, .wav support
 
-    if recurse:
-        files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
-        files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
-        files.extend(list(folderPath.rglob("*.flac")))
-        # files.extend(list(folderPath.rglob("*.wma")))  #wma
-        # files.extend(list(folderPath.rglob("*.wav")))  #wav
-    else:
-        files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
-        files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
-        files.extend(list(folderPath.glob("*.flac")))
-        # files.extend(list(folderPath.glob("*.wma")))  #wma
-        # files.extend(list(folderPath.glob("*.wav")))  #wav
+def getAudioFiles(folderPath, batch = -1, recurse = False):
+    globber = folderPath.rglob if recurse else folderPath.glob
+    files = [f for f in globber('*') if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS]
 
     if batch == -1 or len(files) < batch:
         return files
-    elif len(files) == 0:
-        return -1
     else:
         return files[:batch]
 
@@ -810,62 +754,6 @@ def cleanMetadata(track, md):
         # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
         if md.volumeNumber:
             track['series_index'] = md.volumeNumber
-
-    elif isinstance(track, mp3.MP3):
-        log.debug("Cleaning mp3 metadata")
-
-        track.delete()
-        track.add(mutagen.TIT2(encoding = 3, text = md.title))
-        # Narrators (ID3 TPE1) supports multiple
-        tpe1_text = md.narrators if hasattr(md, 'narrators') and md.narrators else md.narrator
-        track.add(mutagen.TPE1(encoding = 3, text = tpe1_text))
-        track.add(mutagen.TALB(encoding = 3, text = md.series))
-        track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
-        # Series index: TPOS is commonly repurposed for series position, but also add custom TXXX for clarity
-        if md.volumeNumber:
-            track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
-            track.add(mutagen.TXXX(encoding = 3, desc='SERIES_INDEX', text = md.volumeNumber))
-        # Authors (ID3 TCOM) supports multiple
-        if hasattr(md, 'authors') and md.authors:
-            track.add(mutagen.TCOM(encoding = 3, text = md.authors))
-        else:
-            track.add(mutagen.TCOM(encoding = 3, text = md.author))
-        # Genres (ID3 TCON) supports multiple values
-        if hasattr(md, 'genres') and md.genres:
-            track.add(mutagen.TCON(encoding = 3, text = md.genres))
-        track.add(mutagen.TPUB(encoding = 3, text = md.publisher))
-        track.add(mutagen.TXXX(encoding = 3, desc='description', text = md.summary))
-        track.add(mutagen.TXXX(encoding = 3, desc='subtitle', text = md.subtitle))
-        track.add(mutagen.TXXX(encoding = 3, desc='isbn', text = md.isbn))
-        track.add(mutagen.TXXX(encoding = 3, desc='asin', text = md.asin))
-        track.add(mutagen.TXXX(encoding = 3, desc='publisher', text = md.publisher))
-
-    elif isinstance(track, mp4.MP4):
-        log.debug("Cleaning mp4/m4b metadata")
-        
-        track['\xa9nam'] = md.title
-        track['\xa9day'] = md.publishYear
-        # Series index (volume number in series) - use custom freeform key
-        # Note: trkn is for track numbers within an album, not series position
-        if md.volumeNumber:
-            track['----:com.thovin:series_index'] = mutagen.mp4.MP4FreeForm(str(md.volumeNumber).encode('utf-8'))
-        # Authors (MP4) - support multiple values
-        if hasattr(md, 'authors') and md.authors:
-            track['\xa9aut'] = md.authors
-        else:
-            track['\xa9aut'] = md.author
-        # Genres (MP4)
-        if hasattr(md, 'genres') and md.genres:
-            track['\xa9gen'] = md.genres
-        track['\xa9des'] = md.summary
-        # Narrators (MP4) - support multiple values
-        if hasattr(md, 'narrators') and md.narrators:
-            track['\xa9nrt'] = md.narrators
-        else:
-            track['\xa9nrt'] = md.narrator
-        track['----:com.thovin:isbn'] = mutagen.mp4.MP4FreeForm(md.isbn.encode('utf-8'))
-        track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
-        track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
 
     elif isinstance(track, flac.FLAC):
         log.debug("Cleaning FLAC metadata")

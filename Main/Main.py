@@ -100,11 +100,8 @@ def main(args):
 def processBooks():
     global settings
 
-    if (settings.recurseFetch and settings.recurseCombine) or (settings.recurseFetch and settings.recursePreserve) or (settings.recurseCombine and settings.recursePreserve):
-        log.critical("Incompatible processing modes selected. Enable only one processing mode. Exiting...")
-        sys.exit()
-
-    elif settings.recurseFetch:
+    #recursive modes are enforced as mutually exclusive by argparse
+    if settings.recurseFetch:
         Processing.recursivelyFetchBatch()
 
     elif settings.recurseCombine:
@@ -140,9 +137,10 @@ if __name__ == "__main__":
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
     parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
     parser.add_argument("-RN", "--rename", default = None) #rename files
-    parser.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
-    parser.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
-    parser.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
+    recursiveModes = parser.add_mutually_exclusive_group()
+    recursiveModes.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
+    recursiveModes.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
+    recursiveModes.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
     parser.add_argument("-S", "--save", action = "store_true") #save settings for future executions
     parser.add_argument("-W", "--workers", type=int, default = -1)  #set number of workers to process conversions
 

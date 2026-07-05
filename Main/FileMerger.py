@@ -1,5 +1,4 @@
 from Settings import getSettings
-from itertools import islice
 import mutagen
 import re
 import subprocess
@@ -294,7 +293,7 @@ def combineAndFindChapters(startPath, outPath, counter, root):
     #TODO this doesn't work when copying
     #TODO delete chapter files and/or folder after processing. Make sure you don't accidently kill subs.
     files = getAudioFiles(startPath)
-    if files == -1 or startPath == root:    #ignore files in the root folder
+    if not files or startPath == root:    #ignore files in the root folder
         pass
     elif len(files) == 1:
         counter += 1

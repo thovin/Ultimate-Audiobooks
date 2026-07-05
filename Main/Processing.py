@@ -1,10 +1,14 @@
 import logging
 from Settings import getSettings
 from pathlib import Path
-from Util import *
+import mutagen
+import mutagen.mp3
+from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
+                  getAudioFiles, getUniquePath, calculateWorkerCount, createOpf)
 from FileMerger import combineAndFindChapters
 from BookStatus import skipBook, failBook
 import os
+import re
 import shutil
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
@@ -106,7 +110,7 @@ def processFile(file):
 
         if settings.convert and type != '.m4b':
             log.debug(f"Queueing {file.name} for conversion")
-            conversions.append(Conversion(file, track, type, md))
+            conversions.append(Conversion(file, type, md))
             return
         else:
             newPath = getUniquePath(Path(cleanTitle).with_suffix(type).name, md.bookPath)
@@ -116,7 +120,7 @@ def processFile(file):
             cleanMetadata(track, md)
 
     if settings.convert and type != '.m4b':
-        conversions.append(Conversion(file, track, type, md)) 
+        conversions.append(Conversion(file, type, md))
         return
 
     if settings.rename:
@@ -164,7 +168,7 @@ def recursivelyCombineBatch():
 
 
 def recursivelyPreserveBatch():
-    log.info("Begin resurively finding and processing chapter books (chapters will be preserved)")
+    log.info("Begin recursively finding and processing chapter books (chapters will be preserved)")
     return
 
 
