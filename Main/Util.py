@@ -154,34 +154,25 @@ def getAuthor(track):
 
 def GETpage(url):
     log.info("GET page: " + url)
+    headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'}
     timer = 2
-    page = None
     while True:
         try:
-            page = requests.get(url)
+            page = requests.get(url, headers=headers, timeout=15)
             break
-        except Exception as e:
-            if timer == 2:
-                #loading
-                time.sleep(timer)
-                timer *= 1.5
-            elif timer >= 10:
-                log.error("metadata shows failed, aborting GET")
+        except requests.RequestException as e:
+            if timer >= 10:
+                log.error("GET request failed repeatedly, aborting: " + str(e))
                 return None
-    
-    if page is None:
-        return None
-    
+            log.debug(f"GET failed ({e}), retrying in {timer}s")
+            time.sleep(timer)
+            timer *= 1.5
+
     if page.status_code != requests.codes.ok:
         log.error("Status code not OK, aborting GET")
         return None
-    
-    try:
-        page.raise_for_status()
-        return page
-    except Exception as e:
-        log.error("Raise for status failed, aborting GET")
-        return None
+
+    return page
     
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
