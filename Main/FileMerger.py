@@ -37,24 +37,39 @@ def findTitleNum(title, whichNum) -> int:
 def orderByTrackNumber(tracks, hasMultipleDisks):
     log.debug("Attempting to order files by track number...")
     chapters = [None] * (len(tracks) + 1)
-    
+
 
     if hasMultipleDisks:
         tracksDone = 0
         disk = 1
         while tracksDone < len(tracks):
+            if disk > len(tracks):
+                #disc numbering has gaps or is inconsistent; nothing left to place
+                log.debug("Unable to resolve disc numbering. Aborting track number sort.")
+                return []
             offset = tracksDone
             for track in tracks:
-                diskNumber = track['disknumber'][0]
-                trackNumber = track['tracknumber'][0].split('/')[0]
+                try:
+                    diskNumber = int(track['discnumber'][0].split('/')[0])
+                    trackNumber = int(track['tracknumber'][0].split('/')[0])
+                except (KeyError, ValueError, IndexError):
+                    log.debug("Missing or malformed disc/track number. Aborting track number sort.")
+                    return []
 
                 if diskNumber == disk:
-                    chapters[trackNumber + offset] = track
+                    index = trackNumber + offset
+                    if index < 0 or index >= len(chapters) or chapters[index] is not None:
+                        log.debug("Invalid or overlapping track numbers detected. Aborting track number sort.")
+                        return []
+                    chapters[index] = track
                     tracksDone += 1
             disk += 1
     else:
         for track in tracks:
             trackNumber = int(track['tracknumber'][0].split('/')[0])
+            if trackNumber < 0 or trackNumber >= len(chapters):
+                log.debug("Track number out of range. Aborting track number sort.")
+                return []
             if chapters[trackNumber] == None:
                 chapters[trackNumber] = track
             else:
@@ -66,6 +81,11 @@ def orderByTrackNumber(tracks, hasMultipleDisks):
 
     if chapters[-1] == None:
         chapters = chapters[:-1]
+
+    if any(chapter is None for chapter in chapters):
+        #gaps mean numbering didn't line up (e.g. discs not numbered from 1)
+        log.debug("Gaps in track numbering detected. Aborting track number sort.")
+        return []
 
     return chapters
 
@@ -102,14 +122,17 @@ def orderByTitle(tracks, folderPath=None):
 
 def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin merging chapters in " + folderPath.name)
-    files = list(folderPath.glob("*.mp*"))
-    hasMultipleDisks = False
+    files = [f for f in folderPath.glob('*') if f.suffix.lower() in ('.mp3', '.mp4')]
 
     if len(files) < 1:
-        files = list(folderPath.glob("*.m4*"))
+        files = [f for f in folderPath.glob('*') if f.suffix.lower() in ('.m4a', '.m4b')]
 
     if len(files) < 1:
-        files = list(folderPath.glob("*.flac"))
+        files = [f for f in folderPath.glob('*') if f.suffix.lower() == '.flac']
+
+    if len(files) < 1:
+        log.warning("No audio files found in " + folderPath.name + ". Nothing to merge.")
+        return None
 
     isFlac = files[0].suffix.lower() == '.flac'
     # FLAC chapters are merged directly to M4B/AAC: stream-copy via concat doesn't update
@@ -196,9 +219,10 @@ def orderFiles(files, folderPath=None):
         tracks.append(track)
 
         try:
-            if track['discnumber'][0] != 1:
+            #easy tags are strings, possibly "disc/total" format
+            if int(track['discnumber'][0].split('/')[0]) > 1:
                 hasMultipleDisks = True
-        except KeyError:
+        except (KeyError, ValueError, IndexError):
             pass
 
     try:
