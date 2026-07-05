@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 import os
 import shutil
-from Util import sanitizeFile, getAudioFiles
+from Util import sanitizeFile, getAudioFiles, getUniquePath
 from BookStatus import skipBook, failBook, setOriginalPath
 
 log = logging.getLogger(__name__)
@@ -118,10 +118,8 @@ def mergeBook(folderPath, outPath = False, move = False):
     outSuffix = '.m4b' if isFlac else files[0].suffix
     codec_args = ['-c:a', 'aac', '-q:a', '3'] if isFlac else ['-codec', 'copy']
 
-    if outPath:
-        newFilepath = outPath / (folderPath.name + " - " + files[0].stem + outSuffix)
-    else:
-        newFilepath = folderPath / (folderPath.name + " - " + files[0].stem + outSuffix)
+    newName = folderPath.name + " - " + files[0].stem + outSuffix
+    newFilepath = getUniquePath(newName, outPath if outPath else folderPath)
 
     log.debug(str(len(files)) + " chapters detected")
 
@@ -146,6 +144,7 @@ def mergeBook(folderPath, outPath = False, move = False):
     tempConcatFilePath, tempChapFilePath = createTempFiles(pieces, folderPath)
 
     cmd = ['ffmpeg',
+        '-nostdin',  #never prompt on stdin (a prompt would hang the run)
         '-f', 'concat',
         '-safe', '0',
         '-i', tempConcatFilePath,

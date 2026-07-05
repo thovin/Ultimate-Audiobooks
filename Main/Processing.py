@@ -5,6 +5,7 @@ from Util import *
 from FileMerger import combineAndFindChapters
 from BookStatus import skipBook, failBook
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
 
@@ -21,10 +22,12 @@ def loadSettings():
 def processConversion(c, settings): #This is run through ProcessPoolExecutor, which limits access to globals
     file = c.file
     type = c.type
-    track = c.track
     md = c.md
 
     file = convertToM4B(file, type, md, settings)
+    if file is None:
+        return  #conversion failed; book already marked as failed
+
     track = mutagen.File(file, easy=True)
 
     if settings.fetch and settings.clean and settings.move:
@@ -106,7 +109,7 @@ def processFile(file):
             conversions.append(Conversion(file, track, type, md))
             return
         else:
-            newPath = Path(md.bookPath) / Path(cleanTitle).with_suffix(type)
+            newPath = getUniquePath(Path(cleanTitle).with_suffix(type).name, md.bookPath)
 
         if settings.clean and settings.move:
             #if copying, we will only clean the copied file
@@ -126,7 +129,7 @@ def processFile(file):
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
         # TODO (rename) temporarily use title while working on rename
-        file.rename(newPath)
+        shutil.move(str(file), str(newPath))  #Path.rename fails when input and output are on different drives
     else:
         log.info("Copying " + file.name + " to " + md.bookPath)
         shutil.copy(file, newPath)

@@ -637,11 +637,12 @@ def getAudioFiles(folderPath, batch = -1, recurse = False):
         return files[:batch]
 
 
-#TODO .m4a is broken
 def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
+    #Returns the converted file's path, or None on failure
     file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)
+    originalFile = file
     log.info("Converting " + file.name + " to M4B")
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
@@ -663,6 +664,8 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         file = sanitizeFile(copyFile)
 
     cmd = ['ffmpeg',
+           '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+           '-y',        #overwrite leftover temp output from a previous crashed run
            '-i', str(file),  #input file (convert Path to string for subprocess)
            '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
@@ -671,8 +674,17 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-loglevel', 'warning',
            '-stats',    #adds back the progress bar loglevel hides
            str(tempPath)]  #convert Path to string for subprocess
-    
-    
+
+
+    def conversionFailed():
+        nonlocal file
+        if not settings.move:
+            #remove the working copy; the untouched original is what should be reported/moved
+            file.unlink(missing_ok=True)
+            file = originalFile
+        failBook(file, "Conversion failed")
+        return None
+
     if type == '.mp3':
         log.debug("Converting MP3 to M4B")
         try:
@@ -682,16 +694,18 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             return tempPath.rename(newPath)
 
         except subprocess.CalledProcessError as e:
-            failBook(file, "Conversion failed")
-            return file
+            return conversionFailed()
 
-    elif type == '.mp4':
-        log.debug("Converting MP4 to M4B")
-        return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
+    elif type == '.mp4' or type == '.m4a':
+        log.debug("Moving MP4/M4A audio into M4B container")
+        #already an MP4 container; a rename is all that's needed. shutil.move handles cross-device paths.
+        return Path(shutil.move(str(file), str(newPath))) #if not settings.move, a copy is created which this moves. Nondestructive.
 
     elif type == '.flac':
         log.debug("Converting FLAC to M4B")
         cmd_flac = ['ffmpeg',
+                    '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+                    '-y',        #overwrite leftover temp output from a previous crashed run
                     '-i', str(file),
                     '-c:a', 'aac',  #transcode to AAC (FLAC can't be stream-copied into MP4 container)
                     '-q:a', '3',  #VBR quality ~128-160kbps
@@ -705,8 +719,11 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             file.unlink()
             return tempPath.rename(newPath)
         except subprocess.CalledProcessError as e:
-            failBook(file, "Conversion failed")
-            return file
+            return conversionFailed()
+
+    else:
+        log.error(f"Unsupported type {type} for conversion of {file.name}")
+        return conversionFailed()
 
 
 def cleanMetadata(track, md):
