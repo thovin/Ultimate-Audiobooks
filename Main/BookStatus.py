@@ -132,7 +132,14 @@ def skipBook(item, reason=None):
     reason_msg = f" - {reason}" if reason else ""
     relPath = _getRelativePath(item)
     log.info(f"Skipping book: \"{relPath}\"{reason_msg}")
-    
+
+    # In copy mode the run is non-destructive, so record the skip but leave the original in place
+    if settings is None:
+        loadSettings()
+    if settings is not None and not settings.move:
+        log.info(f"Copy mode: leaving \"{item.name}\" in place")
+        return
+
     # Move immediately (directory will be created in _moveItem if needed)
     skipDir = _getSkipDir()
     _moveItem(item, skipDir, "book")
@@ -157,7 +164,14 @@ def failBook(item, reason=None):
     reason_msg = f" - {reason}" if reason else ""
     relPath = _getRelativePath(item)
     log.error(f"Failed book: \"{relPath}\"{reason_msg}")
-    
+
+    # In copy mode the run is non-destructive, so record the failure but leave the original in place
+    if settings is None:
+        loadSettings()
+    if settings is not None and not settings.move:
+        log.info(f"Copy mode: leaving \"{item.name}\" in place")
+        return
+
     # Move immediately (directory will be created in _moveItem if needed)
     failDir = _getFailDir()
     _moveItem(item, failDir, "book")

@@ -1,4 +1,5 @@
 import argparse
+import json
 import Settings
 import Util
 import Processing
@@ -57,6 +58,30 @@ def _wait_for_keypress(prompt: str = "Press any key to exit...") -> None:
     except Exception:
         # Last-resort: don't block if anything unexpected happens
         return
+def applySavedSettings(args, parser):
+    #Saved values fill in for any option not explicitly given on the command line.
+    try:
+        with open('settings.json', 'r') as inFile:
+            saved = json.load(inFile)
+    except FileNotFoundError:
+        log.warning("No saved settings found (settings.json). Skipping load.")
+        return
+
+    specified = set()
+    for token in sys.argv[1:]:
+        option = token.split('=', 1)[0]
+        action = parser._option_string_actions.get(option)
+        if action:
+            specified.add(action.dest)
+
+    for key, value in saved.items():
+        if key in ('save', 'load', 'default') or key in specified or not hasattr(args, key):
+            continue
+        setattr(args, key, value)
+
+    log.info("Loaded saved settings from settings.json")
+
+
 def main(args):
     #Yes, I know this approach isn't super elegant. Feel free to recommend an alternative that isn't more of a pain in the ass like a config file.
     global settings
@@ -83,6 +108,9 @@ def processBooks():
         Processing.recursivelyFetchBatch()
 
     elif settings.recurseCombine:
+        if not settings.move:
+            log.critical("--recurseCombine currently requires --move: copy mode would strand original files in the temp folder. Exiting...")
+            sys.exit(1)
         Processing.recursivelyCombineBatch()
 
     elif settings.recursePreserve:
@@ -125,6 +153,9 @@ if __name__ == "__main__":
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
     
     log.debug("Arguments parsed successfully")
+
+    if args.load:
+        applySavedSettings(args, parser)
 
     final_message = ""
     exit_exc = None
