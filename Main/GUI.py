@@ -5,6 +5,7 @@ import queue
 import threading
 from argparse import Namespace
 from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
@@ -56,8 +57,8 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Ultimate Audiobooks")
-        self.geometry("1150x700")
-        self.minsize(950, 600)
+        self.geometry("1280x760")
+        self.minsize(1000, 620)
 
         self.workerThread = None
         self.logQueue = queue.Queue()
@@ -68,13 +69,27 @@ class App(ctk.CTk):
         Util.setUrlProvider(self.urlProvider)
         self.currentSearchURL = None
 
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        #resizable split between sidebar and log area (drag the sash)
+        self.paned = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bd=0,
+                                    relief="flat", bg=self._panedColor())
+        self.paned.pack(fill="both", expand=True)
 
-        self._buildSidebar()
-        self._buildMainArea()
+        sidebar = ctk.CTkFrame(self.paned, corner_radius=0)
+        self._buildSidebar(sidebar)
+        self.paned.add(sidebar, minsize=420, width=500, stretch="never")
+
+        mainArea = ctk.CTkFrame(self.paned, fg_color="transparent")
+        self._buildMainArea(mainArea)
+        self.paned.add(mainArea, minsize=450, stretch="always")
 
         self.after(100, self._pollLogs)
+
+    def _panedColor(self):
+        return "#1a1a1a" if ctk.get_appearance_mode() == "Dark" else "#d4d4d4"
+
+    def _setAppearance(self, mode):
+        ctk.set_appearance_mode(mode)
+        self.paned.configure(bg=self._panedColor())
 
     def _setupLogging(self):
         handler = QueueHandler(self.logQueue)
@@ -85,9 +100,7 @@ class App(ctk.CTk):
 
     # ---------- layout ----------
 
-    def _buildSidebar(self):
-        sidebar = ctk.CTkFrame(self, width=400, corner_radius=0)
-        sidebar.grid(row=0, column=0, sticky="nsew")
+    def _buildSidebar(self, sidebar):
         sidebar.grid_rowconfigure(1, weight=1)
         sidebar.grid_columnconfigure(0, weight=1)
 
@@ -96,7 +109,7 @@ class App(ctk.CTk):
         header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(header, text="Ultimate Audiobooks", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, sticky="w")
         self.appearanceMenu = ctk.CTkOptionMenu(header, values=["Dark", "Light", "System"], width=100,
-                                                command=ctk.set_appearance_mode)
+                                                command=self._setAppearance)
         self.appearanceMenu.grid(row=0, column=1, sticky="e")
 
         form = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
@@ -200,9 +213,9 @@ class App(ctk.CTk):
         self.logLevelMenu.set("INFO")
         self.logLevelMenu.grid(row=0, column=1, sticky="e")
 
-    def _buildMainArea(self):
-        main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=PAD, pady=PAD)
+    def _buildMainArea(self, container):
+        main = ctk.CTkFrame(container, fg_color="transparent")
+        main.pack(fill="both", expand=True, padx=PAD, pady=PAD)
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(2, weight=1)
 
