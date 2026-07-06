@@ -112,8 +112,9 @@ python Main/GUI.py
 ```
 
 - All options from the CLI are available as form controls; Start kicks off a run with live log output
-- Metadata fetch uses an in-app panel per book. **Recommended workflow: simply copy the book page link in your browser** — the GUI detects it and continues automatically, no extra clicks. A paste box, Open Search button, and Skip button are also available in the panel. (The CLI keeps the pure clipboard workflow.)
-- Interface settings (in the sidebar): Dark/Light/System appearance and a UI scale control (90%–150%, default 110%) to size the whole interface to your screen
+- Metadata fetch uses an in-app panel per book, with a selectable input mode (**Clipboard is the default and recommended**): in Clipboard mode, simply copy the book page link in your browser and the GUI picks it up automatically — no extra clicks; in Paste box mode, nothing is auto-detected and you paste the link into the panel deliberately. Open Search and Skip buttons are available in both modes. (The CLI keeps the pure clipboard workflow.)
+- Interface settings (in the sidebar): fetch input mode, Dark/Light/System appearance, and a UI scale control (90%–150%, default 110%)
+- The window remembers its size, position, sidebar width, and interface settings between sessions (stored in `Main/gui_state.json`)
 - Save/Load Settings buttons share the same `settings.json` as the CLI's `-S`/`-L`
 - Linux note: tkinter requires the system Tk package (`sudo pacman -S tk` on Arch, `sudo apt install python3-tk` on Debian/Ubuntu)
 
