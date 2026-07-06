@@ -350,9 +350,9 @@ class App(ctk.CTk):
 
     def _updateFetchHint(self):
         if self._clipboardModeActive():
-            self.fetchHint.configure(text="For each book, a panel will appear above the log.\nCopy the book page link in your browser to continue.")
+            self.fetchHint.configure(text="For each book, a browser search opens automatically.\nCopy the book page link in your browser to continue.")
         else:
-            self.fetchHint.configure(text="For each book, a panel will appear above the log.\nPaste the book page link into it to continue.")
+            self.fetchHint.configure(text="For each book, a panel will appear above the log.\nOpen the search, then paste the book page link to continue.")
 
     def showFetchPanel(self, searchText, searchURL, fileName):
         self.currentSearchURL = searchURL
@@ -371,6 +371,8 @@ class App(ctk.CTk):
                     self._clipboardBaseline = "Ultimate Audiobooks"
             except Exception:
                 self._clipboardBaseline = ""
+            #hands-free flow: launch the browser search automatically, like the CLI does
+            Util.open_url_cross_platform(searchURL)
             self.statusLabel.configure(text="Waiting for a book link (copy it in your browser)...")
         else:
             self.clipModeLabel.grid_remove()
