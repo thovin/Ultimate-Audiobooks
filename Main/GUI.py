@@ -13,6 +13,7 @@ import Main
 import Settings
 import Processing
 import BookStatus
+import Util
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,21 @@ class QueueHandler(logging.Handler):
             pass
 
 
+class GuiUrlProvider:
+    """Feeds book URLs to Util.fetchMetadata from the GUI's fetch panel instead of the clipboard.
+
+    Called from the worker thread; blocks until the user submits a URL or skips.
+    Requests go through a queue because tkinter widgets may only be touched from the main thread."""
+
+    def __init__(self, app):
+        self.app = app
+        self.responses = queue.Queue()
+
+    def __call__(self, searchText, searchURL, file):
+        self.app.fetchRequests.put((searchText, searchURL, file.name))
+        return self.responses.get()
+
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -46,6 +62,11 @@ class App(ctk.CTk):
         self.workerThread = None
         self.logQueue = queue.Queue()
         self._setupLogging()
+
+        self.fetchRequests = queue.Queue()
+        self.urlProvider = GuiUrlProvider(self)
+        Util.setUrlProvider(self.urlProvider)
+        self.currentSearchURL = None
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -136,7 +157,7 @@ class App(ctk.CTk):
         self.fetchMenu = ctk.CTkOptionMenu(fetchRow, values=FETCH_OPTIONS, width=130)
         self.fetchMenu.grid(row=0, column=1, sticky="e")
 
-        self.fetchHint = ctk.CTkLabel(form, text="Fetch uses your clipboard: when the browser search opens,\ncopy the correct book page link (or copy the word 'skip').",
+        self.fetchHint = ctk.CTkLabel(form, text="For each book, a panel will appear above the log:\nopen the search, paste the book page link, or skip.",
                                       font=ctk.CTkFont(size=11), text_color="gray55", justify="left")
         self.fetchHint.grid(row=row, column=0, sticky="w", padx=PAD); row += 1
 
@@ -183,23 +204,75 @@ class App(ctk.CTk):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=0, column=1, sticky="nsew", padx=PAD, pady=PAD)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(1, weight=1)
+        main.grid_rowconfigure(2, weight=1)
 
         ctk.CTkLabel(main, text="Activity Log", font=ctk.CTkFont(size=13, weight="bold"),
                      text_color=("gray25", "gray75")).grid(row=0, column=0, sticky="w", pady=(0, 2))
 
+        self._buildFetchPanel(main)
+
         self.logBox = ctk.CTkTextbox(main, font=ctk.CTkFont(family="monospace", size=12), wrap="word")
-        self.logBox.grid(row=1, column=0, sticky="nsew")
+        self.logBox.grid(row=2, column=0, sticky="nsew")
         self.logBox.configure(state="disabled")
 
         statusRow = ctk.CTkFrame(main, fg_color="transparent")
-        statusRow.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        statusRow.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         statusRow.grid_columnconfigure(0, weight=1)
         self.statusLabel = ctk.CTkLabel(statusRow, text="Ready", anchor="w")
         self.statusLabel.grid(row=0, column=0, sticky="w")
         self.progressBar = ctk.CTkProgressBar(statusRow, width=200, mode="indeterminate")
         self.progressBar.grid(row=0, column=1, sticky="e")
         self.progressBar.set(0)
+
+    def _buildFetchPanel(self, main):
+        self.fetchPanel = ctk.CTkFrame(main, border_width=2)
+        self.fetchPanel.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self.fetchPanel.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(self.fetchPanel, text="Metadata Fetch", font=ctk.CTkFont(size=14, weight="bold")
+                     ).grid(row=0, column=0, columnspan=3, sticky="w", padx=PAD, pady=(8, 0))
+        self.fetchBookLabel = ctk.CTkLabel(self.fetchPanel, text="", anchor="w", wraplength=600, justify="left")
+        self.fetchBookLabel.grid(row=1, column=0, columnspan=3, sticky="ew", padx=PAD)
+
+        ctk.CTkButton(self.fetchPanel, text="Open Search", width=110, command=self._openSearch,
+                      fg_color="transparent", border_width=1).grid(row=2, column=0, padx=(PAD, 6), pady=(4, 10))
+        self.urlEntry = ctk.CTkEntry(self.fetchPanel, placeholder_text="Paste the Audible/Goodreads book page link here")
+        self.urlEntry.grid(row=2, column=1, sticky="ew", pady=(4, 10))
+        self.urlEntry.bind("<Return>", lambda event: self._submitUrl())
+        submitRow = ctk.CTkFrame(self.fetchPanel, fg_color="transparent")
+        submitRow.grid(row=2, column=2, padx=(6, PAD), pady=(4, 10))
+        ctk.CTkButton(submitRow, text="Submit", width=80, command=self._submitUrl).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(submitRow, text="Skip Book", width=80, command=self._skipFetch,
+                      fg_color="transparent", border_width=1).grid(row=0, column=1)
+
+        self.fetchPanel.grid_remove()  #hidden until a fetch is waiting
+
+    def showFetchPanel(self, searchText, searchURL, fileName):
+        self.currentSearchURL = searchURL
+        self.fetchBookLabel.configure(text=f"File: {fileName}\nSearch: {searchText}")
+        self.urlEntry.delete(0, "end")
+        self.fetchPanel.grid()
+        self.urlEntry.focus_set()
+        self.statusLabel.configure(text="Waiting for a book link...")
+
+    def _hideFetchPanel(self):
+        self.fetchPanel.grid_remove()
+        self.statusLabel.configure(text="Running...")
+
+    def _openSearch(self):
+        if self.currentSearchURL:
+            Util.open_url_cross_platform(self.currentSearchURL)
+
+    def _submitUrl(self):
+        url = self.urlEntry.get().strip()
+        if not url:
+            return
+        self._hideFetchPanel()
+        self.urlProvider.responses.put(url)
+
+    def _skipFetch(self):
+        self._hideFetchPanel()
+        self.urlProvider.responses.put("SKIP")
 
     # ---------- helpers ----------
 
@@ -219,6 +292,12 @@ class App(ctk.CTk):
         try:
             while True:
                 self._appendLog(self.logQueue.get_nowait())
+        except queue.Empty:
+            pass
+
+        try:
+            while True:
+                self.showFetchPanel(*self.fetchRequests.get_nowait())
         except queue.Empty:
             pass
 

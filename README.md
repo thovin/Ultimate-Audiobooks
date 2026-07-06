@@ -112,6 +112,7 @@ python Main/GUI.py
 ```
 
 - All options from the CLI are available as form controls; Start kicks off a run with live log output
+- Metadata fetch uses an in-app panel: open the search, paste the book page link, or skip — no clipboard needed (the CLI keeps the clipboard workflow)
 - Save/Load Settings buttons share the same `settings.json` as the CLI's `-S`/`-L`
 - Linux note: tkinter requires the system Tk package (`sudo pacman -S tk` on Arch, `sudo apt install python3-tk` on Debian/Ubuntu)
 

@@ -364,6 +364,116 @@ def parseGoodreadsMd(soup, md):
         log.debug("Exception parsing volume number from goodreads")
 
 
+# Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
+def open_url_cross_platform(url):
+    try:
+        system = platform.system()
+        # On Linux, prefer xdg-open in a fully detached subprocess FIRST to ensure persistence
+        if system == "Linux":
+            try:
+                log.debug("Linux detected; launching via xdg-open (detached)")
+                subprocess.Popen(
+                    ['xdg-open', url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return
+            except Exception:
+                log.debug("xdg-open failed; attempting Python webbrowser as fallback")
+                try:
+                    if webbrowser.open(url, new=2):
+                        return
+                except Exception:
+                    pass
+
+            log.debug("Default browser open failed; attempting additional platform-specific fallbacks")
+            # As a last resort on Linux, try known controllers (still may be tied to parent)
+            for browser in ['firefox', 'google-chrome', 'chromium', 'brave-browser']:
+                try:
+                    webbrowser.get(browser).open(url, new=2)
+                    return
+                except Exception:
+                    continue
+
+            log.error("Could not open a web browser. Please open this URL manually: " + url)
+            return
+
+        # Non-Linux platforms
+        # 1) Honor $BROWSER if set
+        browser_env = os.environ.get('BROWSER')
+        if browser_env:
+            try:
+                log.debug(f"Using BROWSER controller: {browser_env}")
+                webbrowser.get(browser_env).open(url, new=2)
+                return
+            except Exception:
+                pass
+
+        # 2) Use Python's default (respects system defaults)
+        try:
+            if webbrowser.open(url, new=2):
+                log.debug("Opened URL via Python webbrowser default")
+                return
+        except Exception:
+            pass
+
+        # 3) Minimal platform-specific fallbacks
+        log.debug("Default browser open failed; attempting platform-specific fallback")
+        
+        if system == "Windows":
+            try:
+                os.startfile(url)  # type: ignore[attr-defined]
+                return
+            except Exception:
+                pass
+        elif system == "Darwin":
+            try:
+                subprocess.Popen(['open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                return
+            except Exception:
+                pass
+        log.error("Could not open a web browser. Please open this URL manually: " + url)
+    except Exception as e:
+        log.error(f"Failed to open browser: {e}. Please open this URL manually: {url}")
+
+
+#Optional override for how book URLs are obtained during fetch. A provider is a callable
+#(searchText, searchURL, file) -> URL string or "SKIP". The GUI installs its own; the CLI
+#defaults to watching the clipboard (ClipboardUrlProvider).
+urlProvider = None
+
+def setUrlProvider(provider):
+    global urlProvider
+    urlProvider = provider
+
+
+class ClipboardUrlProvider:
+    def __init__(self):
+        self.searchOpened = False
+
+    def __call__(self, searchText, searchURL, file):
+        #reset the clipboard if it already holds a book link, so re-copying the same link registers as a change
+        last = pyperclip.paste()
+        if any(sub in last for sub in ("goodreads.com", "audible.com")):
+            pyperclip.copy("Ultimate Audiobooks")
+            last = "Ultimate Audiobooks"
+
+        if not self.searchOpened:
+            open_url_cross_platform(searchURL)
+            self.searchOpened = True
+
+        log.info("Waiting for URL (copy the book page link, or copy the word 'skip')...")
+        while True:
+            time.sleep(1)
+            curr = pyperclip.paste()
+            if curr == last:
+                continue
+            if curr.strip().upper() == "SKIP" or "audible.com" in curr or "goodreads.com" in curr:
+                return curr
+            #any other clipboard activity is ignored, same as the original behavior
+
+
 def fetchMetadata(file, track) -> Metadata:
     log.info("Fetching metadata")
     md = Metadata()
@@ -379,10 +489,6 @@ def fetchMetadata(file, track) -> Metadata:
     else:
         searchText = file.stem
 
-    oldClipboard = pyperclip.paste()
-    if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
-        pyperclip.copy("Ultimate Audiobooks")
-
     # Construct search query with parentheses around site restrictions
     if settings.fetch == "audible":
         searchQuery = f"audible.com/pd/ {searchText}"
@@ -393,104 +499,28 @@ def fetchMetadata(file, track) -> Metadata:
 
     # URL-encode the query
     encodedQuery = urllib.parse.quote(searchQuery)
-    
+
     # Use a generic search URL that browsers may route to their default search engine
     # Many browsers intercept search URLs and use their configured default search engine
     # If the browser doesn't intercept, it will still perform the search on Google
     searchURL = f"https://www.google.com/search?q={encodedQuery}"
 
-    # Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
-    def open_url_cross_platform(url):
-        try:
-            system = platform.system()
-            # On Linux, prefer xdg-open in a fully detached subprocess FIRST to ensure persistence
-            if system == "Linux":
-                try:
-                    log.debug("Linux detected; launching via xdg-open (detached)")
-                    subprocess.Popen(
-                        ['xdg-open', url],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return
-                except Exception:
-                    log.debug("xdg-open failed; attempting Python webbrowser as fallback")
-                    try:
-                        if webbrowser.open(url, new=2):
-                            return
-                    except Exception:
-                        pass
+    provider = urlProvider if urlProvider is not None else ClipboardUrlProvider()
 
-                log.debug("Default browser open failed; attempting additional platform-specific fallbacks")
-                # As a last resort on Linux, try known controllers (still may be tied to parent)
-                for browser in ['firefox', 'google-chrome', 'chromium', 'brave-browser']:
-                    try:
-                        webbrowser.get(browser).open(url, new=2)
-                        return
-                    except Exception:
-                        continue
-
-                log.error("Could not open a web browser. Please open this URL manually: " + url)
-                return
-
-            # Non-Linux platforms
-            # 1) Honor $BROWSER if set
-            browser_env = os.environ.get('BROWSER')
-            if browser_env:
-                try:
-                    log.debug(f"Using BROWSER controller: {browser_env}")
-                    webbrowser.get(browser_env).open(url, new=2)
-                    return
-                except Exception:
-                    pass
-
-            # 2) Use Python's default (respects system defaults)
-            try:
-                if webbrowser.open(url, new=2):
-                    log.debug("Opened URL via Python webbrowser default")
-                    return
-            except Exception:
-                pass
-
-            # 3) Minimal platform-specific fallbacks
-            log.debug("Default browser open failed; attempting platform-specific fallback")
-            
-            if system == "Windows":
-                try:
-                    os.startfile(url)  # type: ignore[attr-defined]
-                    return
-                except Exception:
-                    pass
-            elif system == "Darwin":
-                try:
-                    subprocess.Popen(['open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                    return
-                except Exception:
-                    pass
-            log.error("Could not open a web browser. Please open this URL manually: " + url)
-        except Exception as e:
-            log.error(f"Failed to open browser: {e}. Please open this URL manually: {url}")
-
-    open_url_cross_platform(searchURL)
-
-
-    tempClipboard = pyperclip.paste()
-    log.info("Waiting for URL...")
     while True:
-        time.sleep(1)
-        currClipboard = pyperclip.paste()
+        candidate = provider(searchText, searchURL, file)
 
-        if currClipboard == tempClipboard:
-            continue
-        elif currClipboard.upper() == "SKIP":
+        if candidate is None or candidate.strip().upper() == "SKIP":
             skipBook(file, "User skipped during metadata fetch")
             return None
-        elif "audible.com" in currClipboard:
-            log.debug("Audible URL captured: " + currClipboard)
+
+        candidate = candidate.strip()
+
+        if "audible.com" in candidate:
+            log.debug("Audible URL captured: " + candidate)
             # Robustly extract ASIN from path or query, ignoring extra query params
             try:
-                parsed = urllib.parse.urlparse(currClipboard.strip())
+                parsed = urllib.parse.urlparse(candidate)
                 path_parts = [p for p in parsed.path.split('/') if p]
                 asin_match = None
                 # Search path segments from the end for a valid ASIN (10-char starting with 'B')
@@ -502,28 +532,22 @@ def fetchMetadata(file, track) -> Metadata:
                 # Fallback to query parameter 'asin' if present
                 if not asin_match:
                     qs = urllib.parse.parse_qs(parsed.query)
-                    candidate = qs.get('asin', [None])[0]
-                    if candidate and re.match(r'^[0-9A-Z]{10}$', candidate, re.IGNORECASE):
-                        asin_match = candidate.upper()
+                    qsAsin = qs.get('asin', [None])[0]
+                    if qsAsin and re.match(r'^[0-9A-Z]{10}$', qsAsin, re.IGNORECASE):
+                        asin_match = qsAsin.upper()
                 if not asin_match:
-                    log.error("Unable to extract ASIN from Audible URL. Please copy a book page link and try again, or copy 'skip' to skip this book.")
-                    pyperclip.copy("Ultimate Audiobooks")
-                    log.info("Waiting for URL...")
+                    log.error("Unable to extract ASIN from Audible URL. Please provide a book page link, or skip this book.")
                     continue
                 md.asin = asin_match
             except Exception:
                 log.exception("Error parsing Audible URL")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
                 continue
 
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl)
             if page is None or not getattr(page, "ok", False):
-                log.error("Audible API request failed. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Audible API request failed. Please provide a valid book page link, or skip this book.")
                 continue
 
             try:
@@ -534,36 +558,32 @@ def fetchMetadata(file, track) -> Metadata:
                 parseAudibleMd(product, md)
 
                 if not md.title or not md.author:
-                    log.error("Audible link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
-                    pyperclip.copy("Ultimate Audiobooks")
-                    log.info("Waiting for URL...")
+                    log.error("Audible link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                     continue
                 break
             except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
-                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Copy a book page link, or 'skip'.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Provide a book page link, or skip this book.")
                 continue
 
 
 
-        elif "goodreads.com" in currClipboard:
-            log.debug("Goodreads URL captured: " + currClipboard)
-            page = GETpage(currClipboard)
+        elif "goodreads.com" in candidate:
+            log.debug("Goodreads URL captured: " + candidate)
+            page = GETpage(candidate)
             if page is None:
-                log.error("Goodreads page request failed. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Goodreads page request failed. Please provide a valid book page link, or skip this book.")
                 continue
             soup = BeautifulSoup(page.text, 'html.parser')
             parseGoodreadsMd(soup, md)
             # Safety net: ensure required fields present
             if not md.title or not md.author:
-                log.error("Goodreads link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Goodreads link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                 continue
             break
+
+        else:
+            log.error("Link not recognized as an Audible or Goodreads book page. Try again, or skip this book.")
+            continue
 
     return md
 
