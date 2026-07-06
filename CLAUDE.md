@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the Project
 
-**Python 3.13** with a local venv. No `requirements.txt` — dependencies are frozen in the venv.
+**Python 3.13** with a local venv. Dependencies are listed in `requirements.txt` (generated via `pip freeze`; regenerate when packages are added to the venv).
 
 ```bash
 # Activate venv and run
@@ -22,7 +22,7 @@ python Main.py --input <input_folder> [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--input <path>` | `-I` | **Required.** Input folder |
-| `--output <path>` | `-O` | Output folder (default: `<input>/Ultimate Output`) |
+| `--output <path>` | `-O` | Output folder (default: `Ultimate Output` sibling of the input folder, i.e. `<input's parent>/Ultimate Output`) |
 | `--move` | `-M` | Move files instead of copying |
 | `--fetch [audible\|goodreads\|both]` | `-FM` | Interactive metadata fetch via browser + clipboard |
 | `--clean` | `-CL` | Write fetched metadata to file tags |
