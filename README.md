@@ -96,12 +96,24 @@ Settings are stored in `settings.json` next to `Main.py`, so they work no matter
 
 # How to run
 
-Clone this project, install requirements, then run `Main/Main.py` with args. Examples below.
+Clone this project, install requirements, then run `Main/Main.py` with args (examples below) — or launch the GUI.
 
 ```
 pip install -r requirements.txt
 python Main/Main.py --input /path/to/audiobooks [OPTIONS]
 ```
+
+## GUI
+
+A desktop GUI (CustomTkinter) covers the same features as the CLI with a live activity log:
+
+```
+python Main/GUI.py
+```
+
+- All options from the CLI are available as form controls; Start kicks off a run with live log output
+- Save/Load Settings buttons share the same `settings.json` as the CLI's `-S`/`-L`
+- Linux note: tkinter requires the system Tk package (`sudo pacman -S tk` on Arch, `sudo apt install python3-tk` on Debian/Ubuntu)
 
 ---
 

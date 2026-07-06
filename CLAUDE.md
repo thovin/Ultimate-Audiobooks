@@ -54,6 +54,7 @@ All source files live in [Main/](Main/).
 | File | Role |
 |------|------|
 | [Main/Main.py](Main/Main.py) | Entry point: argparse, logging setup, top-level dispatch |
+| [Main/GUI.py](Main/GUI.py) | CustomTkinter desktop GUI: settings form, background run thread, live log pane; reuses `Main.main()` and shares `settings.json` with the CLI |
 | [Main/Settings.py](Main/Settings.py) | CLI args → `Settings` dataclass; path validation; save/load JSON |
 | [Main/Processing.py](Main/Processing.py) | Batch processing modes; `ProcessPoolExecutor` for FFmpeg jobs |
 | [Main/Util.py](Main/Util.py) | Core logic: metadata classes, Audible/Goodreads parsing, clipboard monitoring, FFmpeg conversion, file ops |

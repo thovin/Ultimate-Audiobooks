@@ -3,8 +3,11 @@ beautifulsoup4==4.14.3
 bs4==0.0.2
 certifi==2026.2.25
 charset-normalizer==3.4.7
+customtkinter==6.0.0
+darkdetect==0.8.0
 idna==3.11
 mutagen==1.47.0
+packaging==26.2
 psutil==7.2.2
 pydub==0.25.1
 pyperclip==1.11.0
