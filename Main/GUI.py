@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+import pyperclip
 
 import Main
 import Settings
@@ -18,11 +19,13 @@ import Util
 
 log = logging.getLogger(__name__)
 
-PAD = 10
+PAD = 14
 FETCH_OPTIONS = ["Off", "Audible", "Goodreads", "Both"]
 CREATE_OPTIONS = ["Off", "OPF"]  #INFOTEXT not yet implemented
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 MODES = ["Single level", "Recurse fetch", "Recurse combine"]  #Recurse preserve not yet implemented
+UI_SCALES = ["90%", "100%", "110%", "125%", "150%"]
+DEFAULT_UI_SCALE = "110%"
 
 
 class QueueHandler(logging.Handler):
@@ -41,8 +44,9 @@ class QueueHandler(logging.Handler):
 class GuiUrlProvider:
     """Feeds book URLs to Util.fetchMetadata from the GUI's fetch panel instead of the clipboard.
 
-    Called from the worker thread; blocks until the user submits a URL or skips.
-    Requests go through a queue because tkinter widgets may only be touched from the main thread."""
+    Called from the worker thread; blocks until the user submits a URL, copies one
+    (clipboard watching), or skips. Requests go through a queue because tkinter widgets
+    may only be touched from the main thread."""
 
     def __init__(self, app):
         self.app = app
@@ -57,8 +61,8 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Ultimate Audiobooks")
-        self.geometry("1280x760")
-        self.minsize(1000, 620)
+        self.geometry("1280x800")
+        self.minsize(1050, 650)
 
         self.workerThread = None
         self.logQueue = queue.Queue()
@@ -68,6 +72,8 @@ class App(ctk.CTk):
         self.urlProvider = GuiUrlProvider(self)
         Util.setUrlProvider(self.urlProvider)
         self.currentSearchURL = None
+        self._clipboardBaseline = ""
+        self._clipboardTick = 0
 
         #resizable split between sidebar and log area (drag the sash)
         self.paned = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bd=0,
@@ -76,7 +82,7 @@ class App(ctk.CTk):
 
         sidebar = ctk.CTkFrame(self.paned, corner_radius=0)
         self._buildSidebar(sidebar)
-        self.paned.add(sidebar, minsize=420, width=500, stretch="never")
+        self.paned.add(sidebar, minsize=460, width=560, stretch="never")
 
         mainArea = ctk.CTkFrame(self.paned, fg_color="transparent")
         self._buildMainArea(mainArea)
@@ -90,6 +96,9 @@ class App(ctk.CTk):
     def _setAppearance(self, mode):
         ctk.set_appearance_mode(mode)
         self.paned.configure(bg=self._panedColor())
+
+    def _setUiScale(self, value):
+        ctk.set_widget_scaling(int(value.rstrip('%')) / 100)
 
     def _setupLogging(self):
         handler = QueueHandler(self.logQueue)
@@ -105,113 +114,126 @@ class App(ctk.CTk):
         sidebar.grid_columnconfigure(0, weight=1)
 
         header = ctk.CTkFrame(sidebar, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, 0))
+        header.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, 4))
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="Ultimate Audiobooks", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, sticky="w")
-        self.appearanceMenu = ctk.CTkOptionMenu(header, values=["Dark", "Light", "System"], width=100,
-                                                command=self._setAppearance)
-        self.appearanceMenu.grid(row=0, column=1, sticky="e")
+        ctk.CTkLabel(header, text="Ultimate Audiobooks",
+                     font=ctk.CTkFont(size=22, weight="bold")).grid(row=0, column=0, sticky="w")
 
         form = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
-        form.grid(row=1, column=0, sticky="nsew", padx=(PAD // 2, 0), pady=PAD)
+        form.grid(row=1, column=0, sticky="nsew", padx=(PAD // 2, 0), pady=(4, PAD // 2))
         form.grid_columnconfigure(0, weight=1)
         self._buildForm(form)
 
         buttons = ctk.CTkFrame(sidebar, fg_color="transparent")
         buttons.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(0, PAD))
         buttons.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkButton(buttons, text="Save Settings", command=self._saveSettings,
-                      fg_color="transparent", border_width=1).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ctk.CTkButton(buttons, text="Load Settings", command=self._loadSettings,
-                      fg_color="transparent", border_width=1).grid(row=0, column=1, sticky="ew", padx=(4, 0))
-        self.startButton = ctk.CTkButton(buttons, text="Start Processing", height=40,
-                                         font=ctk.CTkFont(size=15, weight="bold"), command=self._startRun)
-        self.startButton.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ctk.CTkButton(buttons, text="Save Settings", height=32, command=self._saveSettings,
+                      fg_color="transparent", border_width=1).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ctk.CTkButton(buttons, text="Load Settings", height=32, command=self._loadSettings,
+                      fg_color="transparent", border_width=1).grid(row=0, column=1, sticky="ew", padx=(5, 0))
+        self.startButton = ctk.CTkButton(buttons, text="Start Processing", height=46,
+                                         font=ctk.CTkFont(size=16, weight="bold"), command=self._startRun)
+        self.startButton.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
-    def _sectionLabel(self, parent, row, text):
-        ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(size=13, weight="bold"),
-                     text_color=("gray25", "gray75")).grid(row=row, column=0, sticky="w", padx=PAD, pady=(PAD, 2))
+    def _sectionCard(self, form, row, title):
+        card = ctk.CTkFrame(form)
+        card.grid(row=row, column=0, sticky="ew", padx=(4, 8), pady=(0, 10))
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=("gray30", "gray70")).grid(row=0, column=0, sticky="w", padx=PAD, pady=(10, 6))
+        return card
+
+    def _menuRow(self, card, row, labelText, menu):
+        rowFrame = ctk.CTkFrame(card, fg_color="transparent")
+        rowFrame.grid(row=row, column=0, sticky="ew", padx=PAD, pady=(0, 8))
+        rowFrame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(rowFrame, text=labelText, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w")
+        menu.grid(row=0, column=1, sticky="e", in_=rowFrame)
+        return rowFrame
 
     def _buildForm(self, form):
-        row = 0
+        # --- Folders ---
+        card = self._sectionCard(form, 0, "FOLDERS")
 
-        self._sectionLabel(form, row, "FOLDERS"); row += 1
-
-        inputRow = ctk.CTkFrame(form, fg_color="transparent")
-        inputRow.grid(row=row, column=0, sticky="ew", padx=PAD); row += 1
+        inputRow = ctk.CTkFrame(card, fg_color="transparent")
+        inputRow.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(0, 8))
         inputRow.grid_columnconfigure(0, weight=1)
-        self.inputEntry = ctk.CTkEntry(inputRow, placeholder_text="Input folder (required)")
-        self.inputEntry.grid(row=0, column=0, sticky="ew", pady=2)
-        ctk.CTkButton(inputRow, text="Browse", width=70,
-                      command=lambda: self._browseInto(self.inputEntry)).grid(row=0, column=1, padx=(6, 0))
+        self.inputEntry = ctk.CTkEntry(inputRow, height=32, placeholder_text="Input folder (required)")
+        self.inputEntry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(inputRow, text="Browse", width=76, height=32,
+                      command=lambda: self._browseInto(self.inputEntry)).grid(row=0, column=1, padx=(8, 0))
 
-        outputRow = ctk.CTkFrame(form, fg_color="transparent")
-        outputRow.grid(row=row, column=0, sticky="ew", padx=PAD); row += 1
+        outputRow = ctk.CTkFrame(card, fg_color="transparent")
+        outputRow.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(0, 8))
         outputRow.grid_columnconfigure(0, weight=1)
-        self.outputEntry = ctk.CTkEntry(outputRow, placeholder_text="Output folder (optional)")
-        self.outputEntry.grid(row=0, column=0, sticky="ew", pady=2)
-        ctk.CTkButton(outputRow, text="Browse", width=70,
-                      command=lambda: self._browseInto(self.outputEntry)).grid(row=0, column=1, padx=(6, 0))
+        self.outputEntry = ctk.CTkEntry(outputRow, height=32, placeholder_text="Output folder (optional)")
+        self.outputEntry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(outputRow, text="Browse", width=76, height=32,
+                      command=lambda: self._browseInto(self.outputEntry)).grid(row=0, column=1, padx=(8, 0))
 
-        self.moveSwitch = ctk.CTkSwitch(form, text="Move files (default: copy)")
-        self.moveSwitch.grid(row=row, column=0, sticky="w", padx=PAD, pady=4); row += 1
+        self.moveSwitch = ctk.CTkSwitch(card, text="Move files (default: copy)", font=ctk.CTkFont(size=13))
+        self.moveSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 12))
 
-        self._sectionLabel(form, row, "PROCESSING MODE"); row += 1
-        self.modeSelector = ctk.CTkSegmentedButton(form, values=MODES)
+        # --- Processing mode ---
+        card = self._sectionCard(form, 1, "PROCESSING MODE")
+        self.modeSelector = ctk.CTkSegmentedButton(card, values=MODES, height=32, font=ctk.CTkFont(size=13))
         self.modeSelector.set(MODES[0])
-        self.modeSelector.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
+        self.modeSelector.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(0, 12))
 
-        self._sectionLabel(form, row, "METADATA"); row += 1
+        # --- Metadata ---
+        card = self._sectionCard(form, 2, "METADATA")
 
-        fetchRow = ctk.CTkFrame(form, fg_color="transparent")
-        fetchRow.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
-        fetchRow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(fetchRow, text="Fetch from web:").grid(row=0, column=0, sticky="w")
-        self.fetchMenu = ctk.CTkOptionMenu(fetchRow, values=FETCH_OPTIONS, width=130)
-        self.fetchMenu.grid(row=0, column=1, sticky="e")
+        self.fetchMenu = ctk.CTkOptionMenu(card, values=FETCH_OPTIONS, width=140, height=32,
+                                           font=ctk.CTkFont(size=13))
+        self._menuRow(card, 1, "Fetch from web:", self.fetchMenu)
 
-        self.fetchHint = ctk.CTkLabel(form, text="For each book, a panel will appear above the log:\nopen the search, paste the book page link, or skip.",
-                                      font=ctk.CTkFont(size=11), text_color="gray55", justify="left")
-        self.fetchHint.grid(row=row, column=0, sticky="w", padx=PAD); row += 1
+        self.fetchHint = ctk.CTkLabel(card, text="For each book, a panel will appear above the log.\nCopy the book page link, paste it, or skip.",
+                                      font=ctk.CTkFont(size=12), text_color="gray55", justify="left")
+        self.fetchHint.grid(row=2, column=0, sticky="w", padx=PAD, pady=(0, 8))
 
-        self.cleanSwitch = ctk.CTkSwitch(form, text="Clean file tags with fetched metadata")
-        self.cleanSwitch.grid(row=row, column=0, sticky="w", padx=PAD, pady=4); row += 1
+        self.cleanSwitch = ctk.CTkSwitch(card, text="Clean file tags with fetched metadata", font=ctk.CTkFont(size=13))
+        self.cleanSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 8))
 
-        createRow = ctk.CTkFrame(form, fg_color="transparent")
-        createRow.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
-        createRow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(createRow, text="Sidecar file:").grid(row=0, column=0, sticky="w")
-        self.createMenu = ctk.CTkOptionMenu(createRow, values=CREATE_OPTIONS, width=130)
-        self.createMenu.grid(row=0, column=1, sticky="e")
+        self.createMenu = ctk.CTkOptionMenu(card, values=CREATE_OPTIONS, width=140, height=32,
+                                            font=ctk.CTkFont(size=13))
+        rowFrame = self._menuRow(card, 4, "Sidecar file:", self.createMenu)
+        rowFrame.grid_configure(pady=(0, 12))
 
-        self._sectionLabel(form, row, "CONVERSION"); row += 1
-        self.convertSwitch = ctk.CTkSwitch(form, text="Convert to .m4b (requires ffmpeg)")
-        self.convertSwitch.grid(row=row, column=0, sticky="w", padx=PAD, pady=4); row += 1
+        # --- Conversion ---
+        card = self._sectionCard(form, 3, "CONVERSION")
+        self.convertSwitch = ctk.CTkSwitch(card, text="Convert to .m4b (requires ffmpeg)", font=ctk.CTkFont(size=13))
+        self.convertSwitch.grid(row=1, column=0, sticky="w", padx=PAD, pady=(0, 8))
 
-        workersRow = ctk.CTkFrame(form, fg_color="transparent")
-        workersRow.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
-        workersRow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(workersRow, text="Workers:").grid(row=0, column=0, sticky="w")
-        self.workersEntry = ctk.CTkEntry(workersRow, width=130, placeholder_text="Auto")
-        self.workersEntry.grid(row=0, column=1, sticky="e")
+        self.workersEntry = ctk.CTkEntry(card, width=140, height=32, placeholder_text="Auto",
+                                         font=ctk.CTkFont(size=13))
+        rowFrame = self._menuRow(card, 2, "Workers:", self.workersEntry)
+        rowFrame.grid_configure(pady=(0, 12))
 
-        self._sectionLabel(form, row, "EXECUTION"); row += 1
+        # --- Execution ---
+        card = self._sectionCard(form, 4, "EXECUTION")
 
-        batchRow = ctk.CTkFrame(form, fg_color="transparent")
-        batchRow.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
-        batchRow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(batchRow, text="Batch size:").grid(row=0, column=0, sticky="w")
-        self.batchEntry = ctk.CTkEntry(batchRow, width=130)
+        self.batchEntry = ctk.CTkEntry(card, width=140, height=32, font=ctk.CTkFont(size=13))
         self.batchEntry.insert(0, "10")
-        self.batchEntry.grid(row=0, column=1, sticky="e")
+        self._menuRow(card, 1, "Batch size:", self.batchEntry)
 
-        levelRow = ctk.CTkFrame(form, fg_color="transparent")
-        levelRow.grid(row=row, column=0, sticky="ew", padx=PAD, pady=2); row += 1
-        levelRow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(levelRow, text="Log level:").grid(row=0, column=0, sticky="w")
-        self.logLevelMenu = ctk.CTkOptionMenu(levelRow, values=LOG_LEVELS, width=130)
+        self.logLevelMenu = ctk.CTkOptionMenu(card, values=LOG_LEVELS, width=140, height=32,
+                                              font=ctk.CTkFont(size=13))
         self.logLevelMenu.set("INFO")
-        self.logLevelMenu.grid(row=0, column=1, sticky="e")
+        rowFrame = self._menuRow(card, 2, "Log level:", self.logLevelMenu)
+        rowFrame.grid_configure(pady=(0, 12))
+
+        # --- Interface ---
+        card = self._sectionCard(form, 5, "INTERFACE")
+
+        self.appearanceMenu = ctk.CTkOptionMenu(card, values=["Dark", "Light", "System"], width=140, height=32,
+                                                font=ctk.CTkFont(size=13), command=self._setAppearance)
+        self._menuRow(card, 1, "Appearance:", self.appearanceMenu)
+
+        self.uiScaleMenu = ctk.CTkOptionMenu(card, values=UI_SCALES, width=140, height=32,
+                                             font=ctk.CTkFont(size=13), command=self._setUiScale)
+        self.uiScaleMenu.set(DEFAULT_UI_SCALE)
+        rowFrame = self._menuRow(card, 2, "UI scale:", self.uiScaleMenu)
+        rowFrame.grid_configure(pady=(0, 12))
 
     def _buildMainArea(self, container):
         main = ctk.CTkFrame(container, fg_color="transparent")
@@ -219,19 +241,19 @@ class App(ctk.CTk):
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(2, weight=1)
 
-        ctk.CTkLabel(main, text="Activity Log", font=ctk.CTkFont(size=13, weight="bold"),
-                     text_color=("gray25", "gray75")).grid(row=0, column=0, sticky="w", pady=(0, 2))
+        ctk.CTkLabel(main, text="Activity Log", font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=("gray30", "gray70")).grid(row=0, column=0, sticky="w", pady=(0, 4))
 
         self._buildFetchPanel(main)
 
-        self.logBox = ctk.CTkTextbox(main, font=ctk.CTkFont(family="monospace", size=12), wrap="word")
+        self.logBox = ctk.CTkTextbox(main, font=ctk.CTkFont(family="monospace", size=13), wrap="word")
         self.logBox.grid(row=2, column=0, sticky="nsew")
         self.logBox.configure(state="disabled")
 
         statusRow = ctk.CTkFrame(main, fg_color="transparent")
-        statusRow.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        statusRow.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         statusRow.grid_columnconfigure(0, weight=1)
-        self.statusLabel = ctk.CTkLabel(statusRow, text="Ready", anchor="w")
+        self.statusLabel = ctk.CTkLabel(statusRow, text="Ready", anchor="w", font=ctk.CTkFont(size=13))
         self.statusLabel.grid(row=0, column=0, sticky="w")
         self.progressBar = ctk.CTkProgressBar(statusRow, width=200, mode="indeterminate")
         self.progressBar.grid(row=0, column=1, sticky="e")
@@ -239,34 +261,48 @@ class App(ctk.CTk):
 
     def _buildFetchPanel(self, main):
         self.fetchPanel = ctk.CTkFrame(main, border_width=2)
-        self.fetchPanel.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self.fetchPanel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         self.fetchPanel.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(self.fetchPanel, text="Metadata Fetch", font=ctk.CTkFont(size=14, weight="bold")
-                     ).grid(row=0, column=0, columnspan=3, sticky="w", padx=PAD, pady=(8, 0))
-        self.fetchBookLabel = ctk.CTkLabel(self.fetchPanel, text="", anchor="w", wraplength=600, justify="left")
-        self.fetchBookLabel.grid(row=1, column=0, columnspan=3, sticky="ew", padx=PAD)
+        ctk.CTkLabel(self.fetchPanel, text="Metadata Fetch", font=ctk.CTkFont(size=15, weight="bold")
+                     ).grid(row=0, column=0, columnspan=3, sticky="w", padx=PAD, pady=(10, 0))
+        self.fetchBookLabel = ctk.CTkLabel(self.fetchPanel, text="", anchor="w", wraplength=700,
+                                           justify="left", font=ctk.CTkFont(size=13))
+        self.fetchBookLabel.grid(row=1, column=0, columnspan=3, sticky="ew", padx=PAD, pady=(2, 4))
 
-        ctk.CTkButton(self.fetchPanel, text="Open Search", width=110, command=self._openSearch,
-                      fg_color="transparent", border_width=1).grid(row=2, column=0, padx=(PAD, 6), pady=(4, 10))
-        self.urlEntry = ctk.CTkEntry(self.fetchPanel, placeholder_text="Paste the Audible/Goodreads book page link here")
-        self.urlEntry.grid(row=2, column=1, sticky="ew", pady=(4, 10))
+        ctk.CTkButton(self.fetchPanel, text="Open Search", width=110, height=32, command=self._openSearch,
+                      fg_color="transparent", border_width=1).grid(row=2, column=0, padx=(PAD, 8), pady=(4, 12))
+        self.urlEntry = ctk.CTkEntry(self.fetchPanel, height=32,
+                                     placeholder_text="Copy the Audible/Goodreads book link, or paste it here")
+        self.urlEntry.grid(row=2, column=1, sticky="ew", pady=(4, 12))
         self.urlEntry.bind("<Return>", lambda event: self._submitUrl())
         submitRow = ctk.CTkFrame(self.fetchPanel, fg_color="transparent")
-        submitRow.grid(row=2, column=2, padx=(6, PAD), pady=(4, 10))
-        ctk.CTkButton(submitRow, text="Submit", width=80, command=self._submitUrl).grid(row=0, column=0, padx=(0, 6))
-        ctk.CTkButton(submitRow, text="Skip Book", width=80, command=self._skipFetch,
+        submitRow.grid(row=2, column=2, padx=(8, PAD), pady=(4, 12))
+        ctk.CTkButton(submitRow, text="Submit", width=80, height=32, command=self._submitUrl).grid(row=0, column=0, padx=(0, 8))
+        ctk.CTkButton(submitRow, text="Skip Book", width=80, height=32, command=self._skipFetch,
                       fg_color="transparent", border_width=1).grid(row=0, column=1)
 
         self.fetchPanel.grid_remove()  #hidden until a fetch is waiting
+
+    # ---------- fetch panel ----------
 
     def showFetchPanel(self, searchText, searchURL, fileName):
         self.currentSearchURL = searchURL
         self.fetchBookLabel.configure(text=f"File: {fileName}\nSearch: {searchText}")
         self.urlEntry.delete(0, "end")
+
+        #baseline the clipboard so only NEW copies auto-submit; reset it if it already holds a book link
+        try:
+            self._clipboardBaseline = pyperclip.paste()
+            if any(s in self._clipboardBaseline for s in ("audible.com", "goodreads.com")):
+                pyperclip.copy("Ultimate Audiobooks")
+                self._clipboardBaseline = "Ultimate Audiobooks"
+        except Exception:
+            self._clipboardBaseline = ""
+
         self.fetchPanel.grid()
         self.urlEntry.focus_set()
-        self.statusLabel.configure(text="Waiting for a book link...")
+        self.statusLabel.configure(text="Waiting for a book link (copy or paste it)...")
 
     def _hideFetchPanel(self):
         self.fetchPanel.grid_remove()
@@ -286,6 +322,19 @@ class App(ctk.CTk):
     def _skipFetch(self):
         self._hideFetchPanel()
         self.urlProvider.responses.put("SKIP")
+
+    def _watchClipboard(self):
+        #hands-free alternative to the paste box: a newly copied book link (or 'skip') submits itself
+        try:
+            current = pyperclip.paste()
+        except Exception:
+            return
+        if current == self._clipboardBaseline:
+            return
+        if current.strip().upper() == "SKIP" or "audible.com" in current or "goodreads.com" in current:
+            self._clipboardBaseline = current
+            self._hideFetchPanel()
+            self.urlProvider.responses.put(current)
 
     # ---------- helpers ----------
 
@@ -313,6 +362,13 @@ class App(ctk.CTk):
                 self.showFetchPanel(*self.fetchRequests.get_nowait())
         except queue.Empty:
             pass
+
+        #watch the clipboard while the fetch panel is up (every 5th tick ~ 0.5s; xclip calls aren't free)
+        self._clipboardTick += 1
+        if self._clipboardTick >= 5:
+            self._clipboardTick = 0
+            if self.fetchPanel.winfo_ismapped():
+                self._watchClipboard()
 
         if self.workerThread and not self.workerThread.is_alive():
             self.workerThread = None
@@ -457,4 +513,5 @@ class App(ctk.CTk):
 if __name__ == "__main__":
     ctk.set_appearance_mode("Dark")
     ctk.set_default_color_theme("dark-blue")
+    ctk.set_widget_scaling(int(DEFAULT_UI_SCALE.rstrip('%')) / 100)
     App().mainloop()
