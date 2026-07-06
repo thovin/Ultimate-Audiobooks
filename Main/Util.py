@@ -521,6 +521,14 @@ def fetchMetadata(file, track) -> Metadata:
             # Robustly extract ASIN from path or query, ignoring extra query params
             try:
                 parsed = urllib.parse.urlparse(candidate)
+
+                # Series/author/podcast pages carry an ASIN too, and the API now returns parseable
+                # JSON for them (with a title and author), so they must be rejected by URL shape.
+                pathLower = parsed.path.lower()
+                if any(seg in pathLower for seg in ("/series/", "/author/", "/podcast/")):
+                    log.error("That looks like a series, author, or podcast page - not a book page. Please provide a specific book's page link, or skip this book.")
+                    continue
+
                 path_parts = [p for p in parsed.path.split('/') if p]
                 asin_match = None
                 # Search path segments from the end for a valid ASIN (10-char starting with 'B')

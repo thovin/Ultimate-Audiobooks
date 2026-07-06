@@ -582,6 +582,10 @@ class App(ctk.CTk):
             BookStatus.clearFails()
             Processing.conversions.clear()
 
+            mode = "recurse fetch" if args.recurseFetch else "recurse combine" if args.recurseCombine else "single level"
+            log.info(f"Run settings: {'MOVE' if args.move else 'COPY'} | mode: {mode} | fetch: {args.fetch or 'off'} | "
+                     f"clean: {args.clean} | convert: {args.convert} | create: {args.create or 'off'} | batch: {args.batch}")
+
             Main.main(args)
         except SystemExit:
             log.error("Run aborted - see messages above.")
