@@ -5,4 +5,5 @@ ultimateTestEnvironment/
 venv/
 *.code-workspace
 settings.json
-.vscode/gui_state.json
+.vscode/
+Main/gui_state.json
