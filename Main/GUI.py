@@ -112,6 +112,9 @@ class App(ctk.CTk):
         fetchInput = self.guiState.get("fetchInput", FETCH_INPUT_MODES[0])
         self.fetchInputMenu.set(fetchInput if fetchInput in FETCH_INPUT_MODES else FETCH_INPUT_MODES[0])
         self._updateFetchHint()
+        if self.guiState.get("autoLoadSettings"):
+            self.autoLoadSwitch.select()
+            self._loadSettings(silent=True)
 
     def _onClose(self):
         state = {
@@ -120,6 +123,7 @@ class App(ctk.CTk):
             "appearance": self.appearanceMenu.get(),
             "uiScale": self.uiScaleMenu.get(),
             "fetchInput": self.fetchInputMenu.get(),
+            "autoLoadSettings": bool(self.autoLoadSwitch.get()),
         }
         try:
             with open(GUI_STATE_FILE, 'w') as outFile:
@@ -280,9 +284,11 @@ class App(ctk.CTk):
         self.uiScaleMenu = self._labeledRow(card, 2, "UI scale:",
                                             lambda p: ctk.CTkOptionMenu(p, values=UI_SCALES, width=170,
                                                                         height=32, font=font13,
-                                                                        command=self._setUiScale),
-                                            lastInCard=True)
+                                                                        command=self._setUiScale))
         self.uiScaleMenu.set(DEFAULT_UI_SCALE)
+
+        self.autoLoadSwitch = ctk.CTkSwitch(card, text="Auto-load settings on launch", font=font13)
+        self.autoLoadSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 12))
 
     def _buildMainArea(self, container):
         main = ctk.CTkFrame(container, fg_color="transparent")
@@ -492,12 +498,13 @@ class App(ctk.CTk):
             json.dump(values, outFile)
         log.info("Settings saved to " + str(Settings.SETTINGS_FILE))
 
-    def _loadSettings(self):
+    def _loadSettings(self, silent=False):
         try:
             with open(Settings.SETTINGS_FILE, 'r') as inFile:
                 saved = json.load(inFile)
         except FileNotFoundError:
-            messagebox.showinfo("Load Settings", "No saved settings found.")
+            if not silent:
+                messagebox.showinfo("Load Settings", "No saved settings found.")
             return
 
         def setEntry(entry, value):
