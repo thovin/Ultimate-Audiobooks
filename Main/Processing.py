@@ -1,10 +1,15 @@
 import logging
 from Settings import getSettings
 from pathlib import Path
-from Util import *
+import mutagen
+import mutagen.mp3
+from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
+                  getAudioFiles, getUniquePath, calculateWorkerCount, createOpf)
 from FileMerger import combineAndFindChapters
 from BookStatus import skipBook, failBook
 import os
+import re
+import shutil
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
 
@@ -21,14 +26,16 @@ def loadSettings():
 def processConversion(c, settings): #This is run through ProcessPoolExecutor, which limits access to globals
     file = c.file
     type = c.type
-    track = c.track
     md = c.md
 
     file = convertToM4B(file, type, md, settings)
+    if file is None:
+        return  #conversion failed; book already marked as failed
+
     track = mutagen.File(file, easy=True)
 
-    if settings.fetch and settings.clean and settings.move:
-        #if copying, we will only clean the copied file
+    if settings.fetch and settings.clean:
+        #the converted file is a new file in both move and copy modes, so always safe to clean
         cleanMetadata(track, md)
     
     if settings.rename:
@@ -103,17 +110,17 @@ def processFile(file):
 
         if settings.convert and type != '.m4b':
             log.debug(f"Queueing {file.name} for conversion")
-            conversions.append(Conversion(file, track, type, md))
+            conversions.append(Conversion(file, type, md))
             return
         else:
-            newPath = Path(md.bookPath) / Path(cleanTitle).with_suffix(type)
+            newPath = getUniquePath(Path(cleanTitle).with_suffix(type).name, md.bookPath)
 
         if settings.clean and settings.move:
             #if copying, we will only clean the copied file
             cleanMetadata(track, md)
 
     if settings.convert and type != '.m4b':
-        conversions.append(Conversion(file, track, type, md)) 
+        conversions.append(Conversion(file, type, md))
         return
 
     if settings.rename:
@@ -126,12 +133,12 @@ def processFile(file):
     if settings.move:
         log.info("Moving " + file.name + " to " + md.bookPath)
         # TODO (rename) temporarily use title while working on rename
-        file.rename(newPath)
+        shutil.move(str(file), str(newPath))  #Path.rename fails when input and output are on different drives
     else:
         log.info("Copying " + file.name + " to " + md.bookPath)
         shutil.copy(file, newPath)
 
-        if settings.fetch:
+        if settings.fetch and settings.clean:
             cleanMetadata(mutagen.File(newPath, easy=True), md)
 
         
@@ -161,7 +168,7 @@ def recursivelyCombineBatch():
 
 
 def recursivelyPreserveBatch():
-    log.info("Begin resurively finding and processing chapter books (chapters will be preserved)")
+    log.info("Begin recursively finding and processing chapter books (chapters will be preserved)")
     return
 
 

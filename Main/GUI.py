@@ -1,0 +1,605 @@
+"""Ultimate Audiobooks GUI. Run with: python GUI.py (no arguments needed)."""
+import json
+import logging
+import queue
+import threading
+from argparse import Namespace
+from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+import customtkinter as ctk
+import pyperclip
+
+import Main
+import Settings
+import Processing
+import BookStatus
+import Util
+
+log = logging.getLogger(__name__)
+
+PAD = 14
+FETCH_OPTIONS = ["Off", "Audible", "Goodreads", "Both"]
+FETCH_INPUT_MODES = ["Clipboard (copy link)", "Paste box"]
+CREATE_OPTIONS = ["Off", "OPF"]  #INFOTEXT not yet implemented
+LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+MODES = ["Single level", "Recurse fetch", "Recurse combine"]  #Recurse preserve not yet implemented
+UI_SCALES = ["90%", "100%", "110%", "125%", "150%"]
+DEFAULT_UI_SCALE = "110%"
+DEFAULT_GEOMETRY = "1440x860"
+
+#window size/position and interface preferences, remembered between sessions (separate from
+#settings.json, which holds processing options shared with the CLI)
+GUI_STATE_FILE = Path(__file__).resolve().parent / 'gui_state.json'
+
+
+def loadGuiState():
+    try:
+        with open(GUI_STATE_FILE, 'r') as inFile:
+            return json.load(inFile)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+class QueueHandler(logging.Handler):
+    #worker threads log freely; the GUI thread drains the queue (tkinter widgets are not thread-safe)
+    def __init__(self, logQueue):
+        super().__init__()
+        self.logQueue = logQueue
+
+    def emit(self, record):
+        try:
+            self.logQueue.put(self.format(record))
+        except Exception:
+            pass
+
+
+class GuiUrlProvider:
+    """Feeds book URLs to Util.fetchMetadata from the GUI's fetch panel instead of the clipboard.
+
+    Called from the worker thread; blocks until the user supplies a URL or skips.
+    Requests go through a queue because tkinter widgets may only be touched from the main thread."""
+
+    def __init__(self, app):
+        self.app = app
+        self.responses = queue.Queue()
+
+    def __call__(self, searchText, searchURL, file):
+        self.app.fetchRequests.put((searchText, searchURL, file.name))
+        return self.responses.get()
+
+
+class App(ctk.CTk):
+    def __init__(self, guiState=None):
+        super().__init__()
+        self.guiState = guiState if guiState is not None else {}
+        self.title("Ultimate Audiobooks")
+        self.geometry(self.guiState.get("geometry", DEFAULT_GEOMETRY))
+        self.minsize(1050, 650)
+
+        self.workerThread = None
+        self.logQueue = queue.Queue()
+        self._setupLogging()
+
+        self.fetchRequests = queue.Queue()
+        self.urlProvider = GuiUrlProvider(self)
+        Util.setUrlProvider(self.urlProvider)
+        self.currentSearchURL = None
+        self._clipboardBaseline = ""
+        self._clipboardTick = 0
+
+        #resizable split between sidebar and log area (drag the sash)
+        self.paned = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bd=0,
+                                    relief="flat", bg=self._panedColor())
+        self.paned.pack(fill="both", expand=True)
+
+        sidebar = ctk.CTkFrame(self.paned, corner_radius=0)
+        self._buildSidebar(sidebar)
+        self.paned.add(sidebar, minsize=460, width=self.guiState.get("sidebarWidth", 560), stretch="never")
+
+        mainArea = ctk.CTkFrame(self.paned, fg_color="transparent")
+        self._buildMainArea(mainArea)
+        self.paned.add(mainArea, minsize=450, stretch="always")
+
+        self._applyGuiState()
+        self.protocol("WM_DELETE_WINDOW", self._onClose)
+        self.after(100, self._pollLogs)
+
+    def _applyGuiState(self):
+        self.appearanceMenu.set(self.guiState.get("appearance", "Dark"))
+        self.uiScaleMenu.set(self.guiState.get("uiScale", DEFAULT_UI_SCALE))
+        fetchInput = self.guiState.get("fetchInput", FETCH_INPUT_MODES[0])
+        self.fetchInputMenu.set(fetchInput if fetchInput in FETCH_INPUT_MODES else FETCH_INPUT_MODES[0])
+        self._updateFetchHint()
+
+    def _onClose(self):
+        state = {
+            "geometry": self.geometry(),
+            "sidebarWidth": self.paned.sash_coord(0)[0],
+            "appearance": self.appearanceMenu.get(),
+            "uiScale": self.uiScaleMenu.get(),
+            "fetchInput": self.fetchInputMenu.get(),
+        }
+        try:
+            with open(GUI_STATE_FILE, 'w') as outFile:
+                json.dump(state, outFile)
+        except OSError:
+            pass
+        self.destroy()
+
+    def _panedColor(self):
+        return "#1a1a1a" if ctk.get_appearance_mode() == "Dark" else "#d4d4d4"
+
+    def _setAppearance(self, mode):
+        ctk.set_appearance_mode(mode)
+        self.paned.configure(bg=self._panedColor())
+
+    def _setUiScale(self, value):
+        ctk.set_widget_scaling(int(value.rstrip('%')) / 100)
+
+    def _setupLogging(self):
+        handler = QueueHandler(self.logQueue)
+        handler.setFormatter(logging.Formatter("[%(asctime)s][%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+        root = logging.getLogger()
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+
+    # ---------- layout ----------
+
+    def _buildSidebar(self, sidebar):
+        sidebar.grid_rowconfigure(1, weight=1)
+        sidebar.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(sidebar, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, 4))
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(header, text="Ultimate Audiobooks",
+                     font=ctk.CTkFont(size=22, weight="bold")).grid(row=0, column=0, sticky="w")
+
+        form = ctk.CTkScrollableFrame(sidebar, fg_color="transparent")
+        form.grid(row=1, column=0, sticky="nsew", padx=(PAD // 2, 0), pady=(4, PAD // 2))
+        form.grid_columnconfigure(0, weight=1)
+        self._buildForm(form)
+
+        buttons = ctk.CTkFrame(sidebar, fg_color="transparent")
+        buttons.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(0, PAD))
+        buttons.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkButton(buttons, text="Save Settings", height=32, command=self._saveSettings,
+                      fg_color="transparent", border_width=1).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ctk.CTkButton(buttons, text="Load Settings", height=32, command=self._loadSettings,
+                      fg_color="transparent", border_width=1).grid(row=0, column=1, sticky="ew", padx=(5, 0))
+        self.startButton = ctk.CTkButton(buttons, text="Start Processing", height=46,
+                                         font=ctk.CTkFont(size=16, weight="bold"), command=self._startRun)
+        self.startButton.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+
+    def _sectionCard(self, form, row, title):
+        card = ctk.CTkFrame(form)
+        card.grid(row=row, column=0, sticky="ew", padx=(4, 8), pady=(0, 10))
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=("gray30", "gray70")).grid(row=0, column=0, sticky="w", padx=PAD, pady=(10, 6))
+        return card
+
+    def _labeledRow(self, card, row, labelText, makeWidget, lastInCard=False):
+        #makeWidget receives the row frame as parent, so widgets are parented normally
+        #(gridding a widget into a frame that is not its parent breaks dropdown menus)
+        rowFrame = ctk.CTkFrame(card, fg_color="transparent")
+        rowFrame.grid(row=row, column=0, sticky="ew", padx=PAD, pady=(0, 12 if lastInCard else 8))
+        rowFrame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(rowFrame, text=labelText, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w")
+        widget = makeWidget(rowFrame)
+        widget.grid(row=0, column=1, sticky="e")
+        return widget
+
+    def _buildForm(self, form):
+        font13 = ctk.CTkFont(size=13)
+
+        # --- Folders ---
+        card = self._sectionCard(form, 0, "FOLDERS")
+
+        inputRow = ctk.CTkFrame(card, fg_color="transparent")
+        inputRow.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(0, 8))
+        inputRow.grid_columnconfigure(0, weight=1)
+        self.inputEntry = ctk.CTkEntry(inputRow, height=32, placeholder_text="Input folder (required)")
+        self.inputEntry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(inputRow, text="Browse", width=76, height=32,
+                      command=lambda: self._browseInto(self.inputEntry)).grid(row=0, column=1, padx=(8, 0))
+
+        outputRow = ctk.CTkFrame(card, fg_color="transparent")
+        outputRow.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(0, 8))
+        outputRow.grid_columnconfigure(0, weight=1)
+        self.outputEntry = ctk.CTkEntry(outputRow, height=32, placeholder_text="Output folder (optional)")
+        self.outputEntry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(outputRow, text="Browse", width=76, height=32,
+                      command=lambda: self._browseInto(self.outputEntry)).grid(row=0, column=1, padx=(8, 0))
+
+        self.moveSwitch = ctk.CTkSwitch(card, text="Move files (default: copy)", font=font13)
+        self.moveSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 12))
+
+        # --- Processing mode ---
+        card = self._sectionCard(form, 1, "PROCESSING MODE")
+        self.modeSelector = ctk.CTkSegmentedButton(card, values=MODES, height=32, font=font13)
+        self.modeSelector.set(MODES[0])
+        self.modeSelector.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(0, 12))
+
+        # --- Metadata ---
+        card = self._sectionCard(form, 2, "METADATA")
+
+        self.fetchMenu = self._labeledRow(card, 1, "Fetch from web:",
+                                          lambda p: ctk.CTkOptionMenu(p, values=FETCH_OPTIONS, width=170,
+                                                                      height=32, font=font13))
+        self.fetchInputMenu = self._labeledRow(card, 2, "Fetch input:",
+                                               lambda p: ctk.CTkOptionMenu(p, values=FETCH_INPUT_MODES, width=170,
+                                                                           height=32, font=font13,
+                                                                           command=lambda v: self._updateFetchHint()))
+
+        self.fetchHint = ctk.CTkLabel(card, text="", font=ctk.CTkFont(size=12),
+                                      text_color="gray55", justify="left")
+        self.fetchHint.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 8))
+        self._updateFetchHint()
+
+        self.cleanSwitch = ctk.CTkSwitch(card, text="Clean file tags with fetched metadata", font=font13)
+        self.cleanSwitch.grid(row=4, column=0, sticky="w", padx=PAD, pady=(0, 8))
+
+        self.createMenu = self._labeledRow(card, 5, "Sidecar file:",
+                                           lambda p: ctk.CTkOptionMenu(p, values=CREATE_OPTIONS, width=170,
+                                                                       height=32, font=font13),
+                                           lastInCard=True)
+
+        # --- Conversion ---
+        card = self._sectionCard(form, 3, "CONVERSION")
+        self.convertSwitch = ctk.CTkSwitch(card, text="Convert to .m4b (requires ffmpeg)", font=font13)
+        self.convertSwitch.grid(row=1, column=0, sticky="w", padx=PAD, pady=(0, 8))
+
+        self.workersEntry = self._labeledRow(card, 2, "Workers:",
+                                             lambda p: ctk.CTkEntry(p, width=170, height=32,
+                                                                    placeholder_text="Auto", font=font13),
+                                             lastInCard=True)
+
+        # --- Execution ---
+        card = self._sectionCard(form, 4, "EXECUTION")
+
+        self.batchEntry = self._labeledRow(card, 1, "Batch size:",
+                                           lambda p: ctk.CTkEntry(p, width=170, height=32, font=font13))
+        self.batchEntry.insert(0, "10")
+
+        self.logLevelMenu = self._labeledRow(card, 2, "Log level:",
+                                             lambda p: ctk.CTkOptionMenu(p, values=LOG_LEVELS, width=170,
+                                                                         height=32, font=font13),
+                                             lastInCard=True)
+        self.logLevelMenu.set("INFO")
+
+        # --- Interface ---
+        card = self._sectionCard(form, 5, "INTERFACE")
+
+        self.appearanceMenu = self._labeledRow(card, 1, "Appearance:",
+                                               lambda p: ctk.CTkOptionMenu(p, values=["Dark", "Light", "System"],
+                                                                           width=170, height=32, font=font13,
+                                                                           command=self._setAppearance))
+        self.uiScaleMenu = self._labeledRow(card, 2, "UI scale:",
+                                            lambda p: ctk.CTkOptionMenu(p, values=UI_SCALES, width=170,
+                                                                        height=32, font=font13,
+                                                                        command=self._setUiScale),
+                                            lastInCard=True)
+        self.uiScaleMenu.set(DEFAULT_UI_SCALE)
+
+    def _buildMainArea(self, container):
+        main = ctk.CTkFrame(container, fg_color="transparent")
+        main.pack(fill="both", expand=True, padx=PAD, pady=PAD)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(main, text="Activity Log", font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=("gray30", "gray70")).grid(row=0, column=0, sticky="w", pady=(0, 4))
+
+        self._buildFetchPanel(main)
+
+        self.logBox = ctk.CTkTextbox(main, font=ctk.CTkFont(family="monospace", size=13), wrap="word")
+        self.logBox.grid(row=2, column=0, sticky="nsew")
+        self.logBox.configure(state="disabled")
+
+        statusRow = ctk.CTkFrame(main, fg_color="transparent")
+        statusRow.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        statusRow.grid_columnconfigure(0, weight=1)
+        self.statusLabel = ctk.CTkLabel(statusRow, text="Ready", anchor="w", font=ctk.CTkFont(size=13))
+        self.statusLabel.grid(row=0, column=0, sticky="w")
+        self.progressBar = ctk.CTkProgressBar(statusRow, width=200, mode="indeterminate")
+        self.progressBar.grid(row=0, column=1, sticky="e")
+        self.progressBar.set(0)
+
+    def _buildFetchPanel(self, main):
+        self.fetchPanel = ctk.CTkFrame(main, border_width=2)
+        self.fetchPanel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        self.fetchPanel.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(self.fetchPanel, text="Metadata Fetch", font=ctk.CTkFont(size=15, weight="bold")
+                     ).grid(row=0, column=0, columnspan=3, sticky="w", padx=PAD, pady=(10, 0))
+        self.fetchBookLabel = ctk.CTkLabel(self.fetchPanel, text="", anchor="w", wraplength=700,
+                                           justify="left", font=ctk.CTkFont(size=13))
+        self.fetchBookLabel.grid(row=1, column=0, columnspan=3, sticky="ew", padx=PAD, pady=(2, 4))
+
+        ctk.CTkButton(self.fetchPanel, text="Open Search", width=110, height=32, command=self._openSearch,
+                      fg_color="transparent", border_width=1).grid(row=2, column=0, padx=(PAD, 8), pady=(4, 12))
+
+        #paste-box mode widgets
+        self.urlEntry = ctk.CTkEntry(self.fetchPanel, height=32,
+                                     placeholder_text="Paste the Audible/Goodreads book page link here")
+        self.urlEntry.grid(row=2, column=1, sticky="ew", pady=(4, 12))
+        self.urlEntry.bind("<Return>", lambda event: self._submitUrl())
+
+        #clipboard mode replaces the paste box with an instruction
+        self.clipModeLabel = ctk.CTkLabel(self.fetchPanel, font=ctk.CTkFont(size=13), anchor="w",
+                                          text="Copy the book page link in your browser - it will be picked up automatically.")
+        self.clipModeLabel.grid(row=2, column=1, sticky="ew", pady=(4, 12))
+        self.clipModeLabel.grid_remove()
+
+        buttonRow = ctk.CTkFrame(self.fetchPanel, fg_color="transparent")
+        buttonRow.grid(row=2, column=2, padx=(8, PAD), pady=(4, 12))
+        self.submitButton = ctk.CTkButton(buttonRow, text="Submit", width=80, height=32, command=self._submitUrl)
+        self.submitButton.grid(row=0, column=0, padx=(0, 8))
+        ctk.CTkButton(buttonRow, text="Skip Book", width=80, height=32, command=self._skipFetch,
+                      fg_color="transparent", border_width=1).grid(row=0, column=1)
+
+        self.fetchPanel.grid_remove()  #hidden until a fetch is waiting
+
+    # ---------- fetch panel ----------
+
+    def _clipboardModeActive(self):
+        return self.fetchInputMenu.get() == FETCH_INPUT_MODES[0]
+
+    def _updateFetchHint(self):
+        if self._clipboardModeActive():
+            self.fetchHint.configure(text="For each book, a browser search opens automatically.\nCopy the book page link in your browser to continue.")
+        else:
+            self.fetchHint.configure(text="For each book, a panel will appear above the log.\nOpen the search, then paste the book page link to continue.")
+
+    def showFetchPanel(self, searchText, searchURL, fileName):
+        self.currentSearchURL = searchURL
+        self.fetchBookLabel.configure(text=f"File: {fileName}\nSearch: {searchText}")
+        self.urlEntry.delete(0, "end")
+
+        if self._clipboardModeActive():
+            self.urlEntry.grid_remove()
+            self.submitButton.grid_remove()
+            self.clipModeLabel.grid()
+            #baseline the clipboard so only NEW copies count; reset it if it already holds a book link
+            try:
+                self._clipboardBaseline = pyperclip.paste()
+                if any(s in self._clipboardBaseline for s in ("audible.com", "goodreads.com")):
+                    pyperclip.copy("Ultimate Audiobooks")
+                    self._clipboardBaseline = "Ultimate Audiobooks"
+            except Exception:
+                self._clipboardBaseline = ""
+            #hands-free flow: launch the browser search automatically, like the CLI does
+            Util.open_url_cross_platform(searchURL)
+            self.statusLabel.configure(text="Waiting for a book link (copy it in your browser)...")
+        else:
+            self.clipModeLabel.grid_remove()
+            self.urlEntry.grid()
+            self.submitButton.grid()
+            self.urlEntry.focus_set()
+            self.statusLabel.configure(text="Waiting for a book link (paste it into the panel)...")
+
+        self.fetchPanel.grid()
+
+    def _hideFetchPanel(self):
+        self.fetchPanel.grid_remove()
+        self.statusLabel.configure(text="Running...")
+
+    def _openSearch(self):
+        if self.currentSearchURL:
+            Util.open_url_cross_platform(self.currentSearchURL)
+
+    def _submitUrl(self):
+        url = self.urlEntry.get().strip()
+        if not url:
+            return
+        self._hideFetchPanel()
+        self.urlProvider.responses.put(url)
+
+    def _skipFetch(self):
+        self._hideFetchPanel()
+        self.urlProvider.responses.put("SKIP")
+
+    def _watchClipboard(self):
+        #clipboard mode: a newly copied book link (or 'skip') submits itself
+        try:
+            current = pyperclip.paste()
+        except Exception:
+            return
+        if current == self._clipboardBaseline:
+            return
+        if current.strip().upper() == "SKIP" or "audible.com" in current or "goodreads.com" in current:
+            self._clipboardBaseline = current
+            self._hideFetchPanel()
+            self.urlProvider.responses.put(current)
+
+    # ---------- helpers ----------
+
+    def _browseInto(self, entry):
+        folder = filedialog.askdirectory()
+        if folder:
+            entry.delete(0, "end")
+            entry.insert(0, folder)
+
+    def _appendLog(self, text):
+        self.logBox.configure(state="normal")
+        self.logBox.insert("end", text + "\n")
+        self.logBox.see("end")
+        self.logBox.configure(state="disabled")
+
+    def _pollLogs(self):
+        try:
+            while True:
+                self._appendLog(self.logQueue.get_nowait())
+        except queue.Empty:
+            pass
+
+        try:
+            while True:
+                self.showFetchPanel(*self.fetchRequests.get_nowait())
+        except queue.Empty:
+            pass
+
+        #watch the clipboard while the fetch panel is up (every 5th tick ~ 0.5s; xclip calls aren't free)
+        self._clipboardTick += 1
+        if self._clipboardTick >= 5:
+            self._clipboardTick = 0
+            if self.fetchPanel.winfo_ismapped() and self._clipboardModeActive():
+                self._watchClipboard()
+
+        if self.workerThread and not self.workerThread.is_alive():
+            self.workerThread = None
+            self.startButton.configure(state="normal")
+            self.progressBar.stop()
+            self.progressBar.set(0)
+            self.statusLabel.configure(text="Finished - see log for results")
+
+        self.after(100, self._pollLogs)
+
+    # ---------- settings persistence (shares settings.json with the CLI) ----------
+
+    def _formValues(self):
+        mode = self.modeSelector.get()
+        fetch = self.fetchMenu.get().lower()
+        create = self.createMenu.get()
+        workers = self.workersEntry.get().strip()
+        return {
+            "input": self.inputEntry.get().strip(),
+            "output": self.outputEntry.get().strip() or None,
+            "move": bool(self.moveSwitch.get()),
+            "recurseFetch": mode == "Recurse fetch",
+            "recurseCombine": mode == "Recurse combine",
+            "recursePreserve": False,
+            "fetch": None if fetch == "off" else fetch,
+            "clean": bool(self.cleanSwitch.get()),
+            "create": None if create == "Off" else create.upper(),
+            "convert": bool(self.convertSwitch.get()),
+            "batch": self.batchEntry.get().strip(),
+            "workers": -1 if workers.lower() in ("", "auto") else workers,
+            "logLevel": self.logLevelMenu.get(),
+        }
+
+    def _saveSettings(self):
+        values = self._formValues()
+        try:
+            values["batch"] = int(values["batch"])
+            values["workers"] = int(values["workers"])
+        except ValueError:
+            pass  #save as-is; validated properly at run time
+        with open(Settings.SETTINGS_FILE, 'w') as outFile:
+            json.dump(values, outFile)
+        log.info("Settings saved to " + str(Settings.SETTINGS_FILE))
+
+    def _loadSettings(self):
+        try:
+            with open(Settings.SETTINGS_FILE, 'r') as inFile:
+                saved = json.load(inFile)
+        except FileNotFoundError:
+            messagebox.showinfo("Load Settings", "No saved settings found.")
+            return
+
+        def setEntry(entry, value):
+            entry.delete(0, "end")
+            if value not in (None, ""):
+                entry.insert(0, str(value))
+
+        setEntry(self.inputEntry, saved.get("input"))
+        setEntry(self.outputEntry, saved.get("output"))
+        setEntry(self.batchEntry, saved.get("batch", 10))
+        workers = saved.get("workers", -1)
+        setEntry(self.workersEntry, "Auto" if workers in (-1, "-1", None) else workers)
+
+        self.moveSwitch.select() if saved.get("move") else self.moveSwitch.deselect()
+        self.cleanSwitch.select() if saved.get("clean") else self.cleanSwitch.deselect()
+        self.convertSwitch.select() if saved.get("convert") else self.convertSwitch.deselect()
+
+        if saved.get("recurseFetch"):
+            self.modeSelector.set("Recurse fetch")
+        elif saved.get("recurseCombine"):
+            self.modeSelector.set("Recurse combine")
+        else:
+            self.modeSelector.set("Single level")
+
+        fetch = saved.get("fetch")
+        self.fetchMenu.set(fetch.capitalize() if fetch in ("audible", "goodreads", "both") else "Off")
+        self.createMenu.set("OPF" if saved.get("create") else "Off")
+        level = saved.get("logLevel", "INFO")
+        self.logLevelMenu.set(level if level in LOG_LEVELS else "INFO")
+        log.info("Settings loaded from " + str(Settings.SETTINGS_FILE))
+
+    # ---------- running ----------
+
+    def _collectArgs(self):
+        values = self._formValues()
+
+        if not values["input"]:
+            messagebox.showerror("Missing input", "Please choose an input folder.")
+            return None
+        if not Path(values["input"]).is_dir():
+            messagebox.showerror("Invalid input", "The input folder does not exist:\n" + values["input"])
+            return None
+        if values["recurseCombine"] and not values["move"]:
+            messagebox.showerror("Incompatible settings",
+                                 "Recurse combine currently requires 'Move files'.\nCopy mode would strand originals in the temp folder.")
+            return None
+        try:
+            values["batch"] = int(values["batch"])
+        except ValueError:
+            messagebox.showerror("Invalid batch size", "Batch size must be a whole number.")
+            return None
+        try:
+            values["workers"] = int(values["workers"])
+        except ValueError:
+            messagebox.showerror("Invalid workers", "Workers must be a whole number or 'Auto'.")
+            return None
+
+        #flags the CLI has that the GUI handles itself or doesn't expose
+        values.update({"quick": True, "save": False, "load": False, "default": False,
+                       "force": False, "rename": None})
+        return Namespace(**values)
+
+    def _startRun(self):
+        if self.workerThread:
+            return
+        args = self._collectArgs()
+        if args is None:
+            return
+
+        logging.getLogger().setLevel(getattr(logging, args.logLevel, logging.INFO))
+        self.startButton.configure(state="disabled")
+        self.statusLabel.configure(text="Running...")
+        self.progressBar.start()
+
+        self.workerThread = threading.Thread(target=self._runWorker, args=(args,), daemon=True)
+        self.workerThread.start()
+
+    def _runWorker(self, args):
+        try:
+            #reset state left over from a previous run in this same process
+            BookStatus.clearSkips()
+            BookStatus.clearFails()
+            Processing.conversions.clear()
+
+            mode = "recurse fetch" if args.recurseFetch else "recurse combine" if args.recurseCombine else "single level"
+            log.info(f"Run settings: {'MOVE' if args.move else 'COPY'} | mode: {mode} | fetch: {args.fetch or 'off'} | "
+                     f"clean: {args.clean} | convert: {args.convert} | create: {args.create or 'off'} | batch: {args.batch}")
+
+            Main.main(args)
+        except SystemExit:
+            log.error("Run aborted - see messages above.")
+        except Exception:
+            log.exception("Unexpected error during run")
+
+
+if __name__ == "__main__":
+    guiState = loadGuiState()
+    ctk.set_appearance_mode(guiState.get("appearance", "Dark"))
+    ctk.set_default_color_theme("dark-blue")
+    scale = guiState.get("uiScale", DEFAULT_UI_SCALE)
+    try:
+        ctk.set_widget_scaling(int(str(scale).rstrip('%')) / 100)
+    except ValueError:
+        ctk.set_widget_scaling(int(DEFAULT_UI_SCALE.rstrip('%')) / 100)
+    App(guiState).mainloop()

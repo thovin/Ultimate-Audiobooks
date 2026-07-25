@@ -6,3 +6,4 @@ venv/
 *.code-workspace
 settings.json
 .vscode/
+Main/gui_state.json

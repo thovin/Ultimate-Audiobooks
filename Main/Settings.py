@@ -7,29 +7,26 @@ import os
 
 log = logging.getLogger(__name__)
 
+#anchored next to the script so save/load work regardless of launch directory
+SETTINGS_FILE = Path(__file__).resolve().parent / 'settings.json'
+
 settings = None
 
 class Settings:
     def __init__(self, args):
-        '''
-        if self.load:  #TODO either move below args parsing or manually extract load from args. This way doesn't work.
-            try:
-                self.loadSaveFile()
-            except FileNotFoundError:
-                log.debug("No saved settings found! Skipping load.")
-        '''
-                
+        #--load is applied in Main.py before this constructor runs, so args already reflect saved settings
         log.info("Parsing settings")
         for arg, value in vars(args).items():
             setattr(self, arg, value)
-
-        if self.save:   
-            self.createSaveFile()
 
         if not self.output:
             outPath = str(Path(self.input).parent / "Ultimate Output")
             self.output = outPath
             log.debug("Output path defaulting to: " + outPath)
+
+        #save after defaults are resolved so the save file holds real values, not None
+        if self.save:
+            self.createSaveFile()
 
         if not self.quick:
             self.confirm()
@@ -38,20 +35,12 @@ class Settings:
 
         log.debug("Settings parsed")
 
-    def loadSaveFile(self):
-        log.debug("Loading settings")
-        with open ('settings.json', 'r') as inFile:
-            settingsMap = json.load(inFile)
-
-        setSettings(Settings(**settingsMap))
-
-
-    def createSaveFile(self): 
+    def createSaveFile(self):
         log.debug("Saving settings")
         settingsMap = self.__dict__
         settingsJSON = json.dumps(settingsMap)
 
-        with open ('settings.json', 'w') as outFile:
+        with open (SETTINGS_FILE, 'w') as outFile:
             outFile.write(settingsJSON)
 
     def confirm(self):

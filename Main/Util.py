@@ -1,6 +1,5 @@
 from Settings import getSettings
 from pathlib import Path
-from itertools import islice
 import mutagen
 from mutagen import easymp4, mp3, mp4, flac
 import webbrowser
@@ -22,7 +21,6 @@ from BookStatus import skipBook, failBook
 
 log = logging.getLogger(__name__)
 settings = None
-conversions = []
 
 def loadSettings():
     global settings
@@ -48,9 +46,9 @@ class Metadata:
         self.bookPath = ""
 
 class Conversion:
-    def __init__(self, file, track, type, md):
+    #instances are pickled to ProcessPoolExecutor workers, so hold only simple values (no mutagen objects)
+    def __init__(self, file, type, md):
         self.file = file
-        self.track = track
         self.type = type
         self.md = md
 
@@ -66,23 +64,6 @@ def getTitle(track):
         else:
             log.debug("No title found. Returning empty string")
             return ""
-    elif isinstance(track, mp3.MP3):
-        if 'TIT2' in track and track['TIT2'] != "":
-            return track['TIT2']
-        elif 'TALB' in track and track['TALB'] != "":
-            return track['TALB']
-        else:
-            log.debug("No title found. Returning empty string")
-            return ""
-    elif isinstance(track, mp4.MP4):
-        if '\xa9nam' in track and track['\xa9nam'] != "":
-            return track['\xa9nam']
-        elif '\xa9alb' in track and track['\xa9alb'] != "":
-            return track['\xa9alb']
-        else:
-            log.debug("No title found. Returning empty string")
-            return ""
-
     elif isinstance(track, flac.FLAC):
         if 'title' in track and track['title']:
             return track['title'][0]
@@ -112,29 +93,6 @@ def getAuthor(track):
         else:
             log.debug("No author found. Returning empty string")
             return ""
-    elif isinstance(track, mp3.MP3):
-        if 'TPE1' in track and track['TPE1'] != "":
-            return track['TPE1']
-        elif 'TCOM' in track and track['TCOM'] != "":
-            return track['TCOM']
-        elif 'TPE2' in track and track['TPE2'] != "":
-            return track['TPE2']
-        elif 'TEXT' in track and track['TEXT'] != "":
-            return track['TEXT']
-        else:
-            log.debug("No author found. Returning empty string")
-            return ""
-    elif isinstance(track, mp4.MP4):
-        if '\xa9ART' in track and track['\xa9ART'] != "":
-            return track['\xa9ART']
-        elif 'soco' in track and track['soco'] != "":
-            return track['soco']
-        elif 'aART' in track and track['aART'] != "":
-            return track['aART']
-        else:
-            log.debug("No author found. Returning empty string")
-            return ""
-
     elif isinstance(track, flac.FLAC):
         if 'artist' in track and track['artist']:
             return track['artist'][0]
@@ -154,34 +112,25 @@ def getAuthor(track):
 
 def GETpage(url):
     log.info("GET page: " + url)
+    headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'}
     timer = 2
-    page = None
     while True:
         try:
-            page = requests.get(url)
+            page = requests.get(url, headers=headers, timeout=15)
             break
-        except Exception as e:
-            if timer == 2:
-                #loading
-                time.sleep(timer)
-                timer *= 1.5
-            elif timer >= 10:
-                log.error("metadata shows failed, aborting GET")
+        except requests.RequestException as e:
+            if timer >= 10:
+                log.error("GET request failed repeatedly, aborting: " + str(e))
                 return None
-    
-    if page is None:
-        return None
-    
+            log.debug(f"GET failed ({e}), retrying in {timer}s")
+            time.sleep(timer)
+            timer *= 1.5
+
     if page.status_code != requests.codes.ok:
         log.error("Status code not OK, aborting GET")
         return None
-    
-    try:
-        page.raise_for_status()
-        return page
-    except Exception as e:
-        log.error("Raise for status failed, aborting GET")
-        return None
+
+    return page
     
 def parseAudibleMd(info, md):
     log.debug("Parsing audible metadata")
@@ -203,25 +152,25 @@ def parseAudibleMd(info, md):
         else:
             log.debug("No authors found in audible JSON")
     except Exception as e:
-        log.debug("Exeption parsing author in audible JSON")
+        log.debug("Exception parsing author in audible JSON")
 
     try: #title
         md.title = info['title']
     except Exception as e:
-        log.debug("Exeption parsing title in audible JSON")
+        log.debug("Exception parsing title in audible JSON")
 
 
     try: #summary
         rawSummary = BeautifulSoup(info['publisher_summary'], 'html.parser')
         md.summary = rawSummary.getText()
     except Exception as e:
-        log.debug("Exeption parsing summary in audible JSON")
+        log.debug("Exception parsing summary in audible JSON")
 
 
     try: #subtitle
         md.subtitle = info['subtitle']
     except Exception as e:
-        log.debug("Exeption parsing subtitle in audible JSON")
+        log.debug("Exception parsing subtitle in audible JSON")
 
 
     try: #narrators
@@ -233,22 +182,20 @@ def parseAudibleMd(info, md):
             for n in info['narrators']:
                 md.narrators.append(n['name'])
 
-        md.narrator = info['narrators'][0]['name']
-
     except Exception as e:
-        log.debug("Exeption parsing narrator in audible JSON")
+        log.debug("Exception parsing narrator in audible JSON")
 
 
     try: #publisher
         md.publisher = info['publisher_name']
     except Exception as e:
-        log.debug("Exeption parsing publisher in audible JSON")
+        log.debug("Exception parsing publisher in audible JSON")
 
 
     try: #publish year
         md.publishYear = info['release_date'][:4]
     except Exception as e:
-        log.debug("Exeption parsing release year in audible JSON")
+        log.debug("Exception parsing release year in audible JSON")
 
 
     try: #genres (multiple supported)
@@ -292,24 +239,24 @@ def parseAudibleMd(info, md):
                 unique_genres.append(g)
         md.genres = unique_genres
     except Exception as e:
-        log.debug("Exeption parsing genres in audible JSON")
+        log.debug("Exception parsing genres in audible JSON")
 
 
     try: #series
         md.series = info['series'][0]['title']
     except Exception as e:
-        log.debug("Exeption parsing series in audible JSON")
+        log.debug("Exception parsing series in audible JSON")
 
 
     try: #volume num
         md.volumeNumber = info['series'][0]['sequence']
     except Exception as e:
-        log.debug("Exeption parsing volume number in audible JSON")
+        log.debug("Exception parsing volume number in audible JSON")
 
     try: #asin
         md.asin = info['asin']
     except Exception as e:
-        log.debug("Exeption parsing ASIN in audible JSON")
+        log.debug("Exception parsing ASIN in audible JSON")
 
     
 
@@ -319,7 +266,7 @@ def parseGoodreadsMd(soup, md):
     try:
         md.title = soup.find('h1', class_="Text Text__title1").text.strip()
     except Exception as e:
-        log.debug("Exeption parsing title from goodreads")
+        log.debug("Exception parsing title from goodreads")
 
     # Authors (multiple)
     try:
@@ -341,12 +288,12 @@ def parseGoodreadsMd(soup, md):
             if len(md.authors) > 0:
                 md.author = md.authors[0]
     except Exception as e:
-        log.debug("Exeption parsing authors from goodreads")
+        log.debug("Exception parsing authors from goodreads")
 
     try:    #if multiple classes, use wrapper div instead
         md.summary = soup.find('span', class_="Formatted").text.strip()
     except Exception as e:
-        log.debug("Exeption parsing summary from goodreads")
+        log.debug("Exception parsing summary from goodreads")
     
     # Publisher, Publish Year, ISBN
     try:
@@ -370,7 +317,7 @@ def parseGoodreadsMd(soup, md):
             if 10 <= len(candidate) <= 13:
                 md.isbn = candidate
     except Exception as e:
-        log.debug("Exeption parsing publisher/publish year/ISBN from goodreads")
+        log.debug("Exception parsing publisher/publish year/ISBN from goodreads")
 
 
     # Genres (multiple)
@@ -399,7 +346,7 @@ def parseGoodreadsMd(soup, md):
                 unique_genres.append(g)
         md.genres = unique_genres
     except Exception as e:
-        log.debug("Exeption parsing genres from goodreads")
+        log.debug("Exception parsing genres from goodreads")
 
 
         
@@ -407,14 +354,124 @@ def parseGoodreadsMd(soup, md):
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.series = temp[ : temp.find('#') - 1]
     except Exception as e:
-        log.debug("Exeption parsing series from goodreads")
+        log.debug("Exception parsing series from goodreads")
 
 
     try:
         temp = soup.find("div", class_="BookPageTitleSection__title").find_next().text
         md.volumeNumber = temp[temp.find('#') + 1: ]
     except Exception as e:
-        log.debug("Exeption parsing volume number from goodreads")
+        log.debug("Exception parsing volume number from goodreads")
+
+
+# Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
+def open_url_cross_platform(url):
+    try:
+        system = platform.system()
+        # On Linux, prefer xdg-open in a fully detached subprocess FIRST to ensure persistence
+        if system == "Linux":
+            try:
+                log.debug("Linux detected; launching via xdg-open (detached)")
+                subprocess.Popen(
+                    ['xdg-open', url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return
+            except Exception:
+                log.debug("xdg-open failed; attempting Python webbrowser as fallback")
+                try:
+                    if webbrowser.open(url, new=2):
+                        return
+                except Exception:
+                    pass
+
+            log.debug("Default browser open failed; attempting additional platform-specific fallbacks")
+            # As a last resort on Linux, try known controllers (still may be tied to parent)
+            for browser in ['firefox', 'google-chrome', 'chromium', 'brave-browser']:
+                try:
+                    webbrowser.get(browser).open(url, new=2)
+                    return
+                except Exception:
+                    continue
+
+            log.error("Could not open a web browser. Please open this URL manually: " + url)
+            return
+
+        # Non-Linux platforms
+        # 1) Honor $BROWSER if set
+        browser_env = os.environ.get('BROWSER')
+        if browser_env:
+            try:
+                log.debug(f"Using BROWSER controller: {browser_env}")
+                webbrowser.get(browser_env).open(url, new=2)
+                return
+            except Exception:
+                pass
+
+        # 2) Use Python's default (respects system defaults)
+        try:
+            if webbrowser.open(url, new=2):
+                log.debug("Opened URL via Python webbrowser default")
+                return
+        except Exception:
+            pass
+
+        # 3) Minimal platform-specific fallbacks
+        log.debug("Default browser open failed; attempting platform-specific fallback")
+        
+        if system == "Windows":
+            try:
+                os.startfile(url)  # type: ignore[attr-defined]
+                return
+            except Exception:
+                pass
+        elif system == "Darwin":
+            try:
+                subprocess.Popen(['open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                return
+            except Exception:
+                pass
+        log.error("Could not open a web browser. Please open this URL manually: " + url)
+    except Exception as e:
+        log.error(f"Failed to open browser: {e}. Please open this URL manually: {url}")
+
+
+#Optional override for how book URLs are obtained during fetch. A provider is a callable
+#(searchText, searchURL, file) -> URL string or "SKIP". The GUI installs its own; the CLI
+#defaults to watching the clipboard (ClipboardUrlProvider).
+urlProvider = None
+
+def setUrlProvider(provider):
+    global urlProvider
+    urlProvider = provider
+
+
+class ClipboardUrlProvider:
+    def __init__(self):
+        self.searchOpened = False
+
+    def __call__(self, searchText, searchURL, file):
+        #reset the clipboard if it already holds a book link, so re-copying the same link registers as a change
+        last = pyperclip.paste()
+        if any(sub in last for sub in ("goodreads.com", "audible.com")):
+            pyperclip.copy("Ultimate Audiobooks")
+            last = "Ultimate Audiobooks"
+
+        if not self.searchOpened:
+            open_url_cross_platform(searchURL)
+            self.searchOpened = True
+
+        log.info("Waiting for URL (copy the book page link, or copy the word 'skip')...")
+        while True:
+            time.sleep(1)
+            curr = pyperclip.paste()
+            if curr == last:
+                continue
+            if curr.strip().upper() == "SKIP" or "audible.com" in curr or "goodreads.com" in curr:
+                return curr
+            #any other clipboard activity is ignored, same as the original behavior
 
 
 def fetchMetadata(file, track) -> Metadata:
@@ -432,10 +489,6 @@ def fetchMetadata(file, track) -> Metadata:
     else:
         searchText = file.stem
 
-    oldClipboard = pyperclip.paste()
-    if any(sub in oldClipboard for sub in ["goodreads.com", "audible.com"]):
-        pyperclip.copy("Ultimate Audiobooks")
-
     # Construct search query with parentheses around site restrictions
     if settings.fetch == "audible":
         searchQuery = f"audible.com/pd/ {searchText}"
@@ -446,104 +499,36 @@ def fetchMetadata(file, track) -> Metadata:
 
     # URL-encode the query
     encodedQuery = urllib.parse.quote(searchQuery)
-    
+
     # Use a generic search URL that browsers may route to their default search engine
     # Many browsers intercept search URLs and use their configured default search engine
     # If the browser doesn't intercept, it will still perform the search on Google
     searchURL = f"https://www.google.com/search?q={encodedQuery}"
 
-    # Robustly open the search URL in the user's default browser, with fallbacks for all major OSes.
-    def open_url_cross_platform(url):
-        try:
-            system = platform.system()
-            # On Linux, prefer xdg-open in a fully detached subprocess FIRST to ensure persistence
-            if system == "Linux":
-                try:
-                    log.debug("Linux detected; launching via xdg-open (detached)")
-                    subprocess.Popen(
-                        ['xdg-open', url],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return
-                except Exception:
-                    log.debug("xdg-open failed; attempting Python webbrowser as fallback")
-                    try:
-                        if webbrowser.open(url, new=2):
-                            return
-                    except Exception:
-                        pass
+    provider = urlProvider if urlProvider is not None else ClipboardUrlProvider()
 
-                log.debug("Default browser open failed; attempting additional platform-specific fallbacks")
-                # As a last resort on Linux, try known controllers (still may be tied to parent)
-                for browser in ['firefox', 'google-chrome', 'chromium', 'brave-browser']:
-                    try:
-                        webbrowser.get(browser).open(url, new=2)
-                        return
-                    except Exception:
-                        continue
-
-                log.error("Could not open a web browser. Please open this URL manually: " + url)
-                return
-
-            # Non-Linux platforms
-            # 1) Honor $BROWSER if set
-            browser_env = os.environ.get('BROWSER')
-            if browser_env:
-                try:
-                    log.debug(f"Using BROWSER controller: {browser_env}")
-                    webbrowser.get(browser_env).open(url, new=2)
-                    return
-                except Exception:
-                    pass
-
-            # 2) Use Python's default (respects system defaults)
-            try:
-                if webbrowser.open(url, new=2):
-                    log.debug("Opened URL via Python webbrowser default")
-                    return
-            except Exception:
-                pass
-
-            # 3) Minimal platform-specific fallbacks
-            log.debug("Default browser open failed; attempting platform-specific fallback")
-            
-            if system == "Windows":
-                try:
-                    os.startfile(url)  # type: ignore[attr-defined]
-                    return
-                except Exception:
-                    pass
-            elif system == "Darwin":
-                try:
-                    subprocess.Popen(['open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                    return
-                except Exception:
-                    pass
-            log.error("Could not open a web browser. Please open this URL manually: " + url)
-        except Exception as e:
-            log.error(f"Failed to open browser: {e}. Please open this URL manually: {url}")
-
-    open_url_cross_platform(searchURL)
-
-
-    tempClipboard = pyperclip.paste()
-    log.info("Waiting for URL...")
     while True:
-        time.sleep(1)
-        currClipboard = pyperclip.paste()
+        candidate = provider(searchText, searchURL, file)
 
-        if currClipboard == tempClipboard:
-            continue
-        elif currClipboard.upper() == "SKIP":
+        if candidate is None or candidate.strip().upper() == "SKIP":
             skipBook(file, "User skipped during metadata fetch")
             return None
-        elif "audible.com" in currClipboard:
-            log.debug("Audible URL captured: " + currClipboard)
+
+        candidate = candidate.strip()
+
+        if "audible.com" in candidate:
+            log.debug("Audible URL captured: " + candidate)
             # Robustly extract ASIN from path or query, ignoring extra query params
             try:
-                parsed = urllib.parse.urlparse(currClipboard.strip())
+                parsed = urllib.parse.urlparse(candidate)
+
+                # Series/author/podcast pages carry an ASIN too, and the API now returns parseable
+                # JSON for them (with a title and author), so they must be rejected by URL shape.
+                pathLower = parsed.path.lower()
+                if any(seg in pathLower for seg in ("/series/", "/author/", "/podcast/")):
+                    log.error("That looks like a series, author, or podcast page - not a book page. Please provide a specific book's page link, or skip this book.")
+                    continue
+
                 path_parts = [p for p in parsed.path.split('/') if p]
                 asin_match = None
                 # Search path segments from the end for a valid ASIN (10-char starting with 'B')
@@ -555,28 +540,22 @@ def fetchMetadata(file, track) -> Metadata:
                 # Fallback to query parameter 'asin' if present
                 if not asin_match:
                     qs = urllib.parse.parse_qs(parsed.query)
-                    candidate = qs.get('asin', [None])[0]
-                    if candidate and re.match(r'^[0-9A-Z]{10}$', candidate, re.IGNORECASE):
-                        asin_match = candidate.upper()
+                    qsAsin = qs.get('asin', [None])[0]
+                    if qsAsin and re.match(r'^[0-9A-Z]{10}$', qsAsin, re.IGNORECASE):
+                        asin_match = qsAsin.upper()
                 if not asin_match:
-                    log.error("Unable to extract ASIN from Audible URL. Please copy a book page link and try again, or copy 'skip' to skip this book.")
-                    pyperclip.copy("Ultimate Audiobooks")
-                    log.info("Waiting for URL...")
+                    log.error("Unable to extract ASIN from Audible URL. Please provide a book page link, or skip this book.")
                     continue
                 md.asin = asin_match
             except Exception:
                 log.exception("Error parsing Audible URL")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
                 continue
 
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl)
             if page is None or not getattr(page, "ok", False):
-                log.error("Audible API request failed. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Audible API request failed. Please provide a valid book page link, or skip this book.")
                 continue
 
             try:
@@ -587,70 +566,55 @@ def fetchMetadata(file, track) -> Metadata:
                 parseAudibleMd(product, md)
 
                 if not md.title or not md.author:
-                    log.error("Audible link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
-                    pyperclip.copy("Ultimate Audiobooks")
-                    log.info("Waiting for URL...")
+                    log.error("Audible link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                     continue
                 break
             except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
-                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Copy a book page link, or 'skip'.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Provide a book page link, or skip this book.")
                 continue
 
 
 
-        elif "goodreads.com" in currClipboard:
-            log.debug("Goodreads URL captured: " + currClipboard)
-            page = GETpage(currClipboard)
+        elif "goodreads.com" in candidate:
+            log.debug("Goodreads URL captured: " + candidate)
+            page = GETpage(candidate)
             if page is None:
-                log.error("Goodreads page request failed. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Goodreads page request failed. Please provide a valid book page link, or skip this book.")
                 continue
             soup = BeautifulSoup(page.text, 'html.parser')
             parseGoodreadsMd(soup, md)
             # Safety net: ensure required fields present
             if not md.title or not md.author:
-                log.error("Goodreads link did not yield both title and author. Please copy a valid book page link, or copy 'skip' to skip.")
-                pyperclip.copy("Ultimate Audiobooks")
-                log.info("Waiting for URL...")
+                log.error("Goodreads link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                 continue
             break
+
+        else:
+            log.error("Link not recognized as an Audible or Goodreads book page. Try again, or skip this book.")
+            continue
 
     return md
 
 
 
-def getAudioFiles(folderPath, batch = -1, recurse = False):
-    files = []
+AUDIO_EXTENSIONS = {'.m4a', '.m4b', '.mp3', '.mp4', '.flac'}  #TODO consider .wma, .wav support
 
-    if recurse:
-        files.extend(list(folderPath.rglob("*.m4*")))  #.m4a, .m4b
-        files.extend(list(folderPath.rglob("*.mp*")))  #.mp3, .mp4
-        files.extend(list(folderPath.rglob("*.flac")))
-        # files.extend(list(folderPath.rglob("*.wma")))  #wma
-        # files.extend(list(folderPath.rglob("*.wav")))  #wav
-    else:
-        files.extend(list(folderPath.glob("*.m4*")))  #.m4a, .m4b
-        files.extend(list(folderPath.glob("*.mp*")))  #.mp3, .mp4
-        files.extend(list(folderPath.glob("*.flac")))
-        # files.extend(list(folderPath.glob("*.wma")))  #wma
-        # files.extend(list(folderPath.glob("*.wav")))  #wav
+def getAudioFiles(folderPath, batch = -1, recurse = False):
+    globber = folderPath.rglob if recurse else folderPath.glob
+    files = [f for f in globber('*') if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS]
 
     if batch == -1 or len(files) < batch:
         return files
-    elif len(files) == 0:
-        return -1
     else:
         return files[:batch]
 
 
-#TODO .m4a is broken
 def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
+    #Returns the converted file's path, or None on failure
     file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)
+    originalFile = file
     log.info("Converting " + file.name + " to M4B")
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
@@ -672,6 +636,8 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         file = sanitizeFile(copyFile)
 
     cmd = ['ffmpeg',
+           '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+           '-y',        #overwrite leftover temp output from a previous crashed run
            '-i', str(file),  #input file (convert Path to string for subprocess)
            '-codec', 'copy', #copy audio streams instead of re-encoding
            '-vn',   #disable video
@@ -680,8 +646,17 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-loglevel', 'warning',
            '-stats',    #adds back the progress bar loglevel hides
            str(tempPath)]  #convert Path to string for subprocess
-    
-    
+
+
+    def conversionFailed():
+        nonlocal file
+        if not settings.move:
+            #remove the working copy; the untouched original is what should be reported/moved
+            file.unlink(missing_ok=True)
+            file = originalFile
+        failBook(file, "Conversion failed")
+        return None
+
     if type == '.mp3':
         log.debug("Converting MP3 to M4B")
         try:
@@ -691,16 +666,18 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             return tempPath.rename(newPath)
 
         except subprocess.CalledProcessError as e:
-            failBook(file, "Conversion failed")
-            return file
+            return conversionFailed()
 
-    elif type == '.mp4':
-        log.debug("Converting MP4 to M4B")
-        return file.rename(newPath.with_suffix('.m4b')) #if not settings.move, a copy is created which this moves. Nondestructive.
+    elif type == '.mp4' or type == '.m4a':
+        log.debug("Moving MP4/M4A audio into M4B container")
+        #already an MP4 container; a rename is all that's needed. shutil.move handles cross-device paths.
+        return Path(shutil.move(str(file), str(newPath))) #if not settings.move, a copy is created which this moves. Nondestructive.
 
     elif type == '.flac':
         log.debug("Converting FLAC to M4B")
         cmd_flac = ['ffmpeg',
+                    '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+                    '-y',        #overwrite leftover temp output from a previous crashed run
                     '-i', str(file),
                     '-c:a', 'aac',  #transcode to AAC (FLAC can't be stream-copied into MP4 container)
                     '-q:a', '3',  #VBR quality ~128-160kbps
@@ -714,14 +691,26 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
             file.unlink()
             return tempPath.rename(newPath)
         except subprocess.CalledProcessError as e:
-            failBook(file, "Conversion failed")
-            return file
+            return conversionFailed()
+
+    else:
+        log.error(f"Unsupported type {type} for conversion of {file.name}")
+        return conversionFailed()
 
 
 def cleanMetadata(track, md):
     log.info("Cleaning file metadata")
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
+
+        # RegisterTXXXKey maps an easy key name to a TXXX frame description (it does not write values).
+        # Register the custom keys once, then assign values through the easy interface below.
+        track.ID3.RegisterTXXXKey('description', 'description')
+        track.ID3.RegisterTXXXKey('subtitle', 'subtitle')
+        track.ID3.RegisterTXXXKey('isbn', 'isbn')
+        track.ID3.RegisterTXXXKey('publisher', 'publisher')
+        track.ID3.RegisterTXXXKey('series_index', 'series_index')
+        track.ID3.RegisterTXXXKey('author', 'author')
 
         track.delete()
         track['title'] = md.title
@@ -735,36 +724,28 @@ def cleanMetadata(track, md):
         # Series index (volume number in series) - use custom TXXX tag
         # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
         if md.volumeNumber:
-            track.ID3.RegisterTXXXKey('series_index', md.volumeNumber)
+            track['series_index'] = md.volumeNumber
         # Authors (support multiple if available)
-        try:
-            # Support custom 'author' EasyID3 key if available
-            if hasattr(md, 'authors') and md.authors:
-                track['author'] = md.authors
-            else:
-                track['author'] = md.author
-        except Exception:
-            # Fallback to composer for author if custom key unsupported
-            if hasattr(md, 'authors') and md.authors:
-                track['composer'] = md.authors
-            else:
-                track['composer'] = md.author
+        if hasattr(md, 'authors') and md.authors:
+            track['author'] = md.authors
+            track['composer'] = md.authors
+        else:
+            track['author'] = md.author
+            track['composer'] = md.author
         # Genres (support multiple)
-        try:
-            if hasattr(md, 'genres') and md.genres:
-                track['genre'] = md.genres
-        except Exception:
-            pass
+        if hasattr(md, 'genres') and md.genres:
+            track['genre'] = md.genres
         track['asin'] = md.asin
-        track.ID3.RegisterTXXXKey('description', md.summary)
-        track.ID3.RegisterTXXXKey('subtitle', md.subtitle)
-        track.ID3.RegisterTXXXKey('isbn', md.isbn)
-        track.ID3.RegisterTXXXKey('publisher', md.publisher)
+        track['description'] = md.summary
+        track['subtitle'] = md.subtitle
+        track['isbn'] = md.isbn
+        track['publisher'] = md.publisher
 
     elif isinstance(track, easymp4.EasyMP4):
         log.debug("Cleaning easymp4 metadata")
-        track.RegisterTextKey('narrator', '@nrt')
-        track.RegisterTextKey('author', '@aut')
+        #MP4 atom names use the copyright sign prefix (\xa9), not '@'
+        track.RegisterTextKey('narrator', '\xa9nrt')
+        track.RegisterTextKey('author', '\xa9aut')
         # track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
         track.MP4Tags.RegisterFreeformKey('publisher', "publisher", 'com.UltimateAudiobooks')
         # track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
@@ -801,62 +782,6 @@ def cleanMetadata(track, md):
         # Note: discnumber is reserved for actual multi-disc audiobooks (used by FileMerger for chapter ordering)
         if md.volumeNumber:
             track['series_index'] = md.volumeNumber
-
-    elif isinstance(track, mp3.MP3):
-        log.debug("Cleaning mp3 metadata")
-
-        track.delete()
-        track.add(mutagen.TIT2(encoding = 3, text = md.title))
-        # Narrators (ID3 TPE1) supports multiple
-        tpe1_text = md.narrators if hasattr(md, 'narrators') and md.narrators else md.narrator
-        track.add(mutagen.TPE1(encoding = 3, text = tpe1_text))
-        track.add(mutagen.TALB(encoding = 3, text = md.series))
-        track.add(mutagen.TYER(encoding = 3, text = md.publishYear))
-        # Series index: TPOS is commonly repurposed for series position, but also add custom TXXX for clarity
-        if md.volumeNumber:
-            track.add(mutagen.TPOS(encoding = 3, text = md.volumeNumber))
-            track.add(mutagen.TXXX(encoding = 3, desc='SERIES_INDEX', text = md.volumeNumber))
-        # Authors (ID3 TCOM) supports multiple
-        if hasattr(md, 'authors') and md.authors:
-            track.add(mutagen.TCOM(encoding = 3, text = md.authors))
-        else:
-            track.add(mutagen.TCOM(encoding = 3, text = md.author))
-        # Genres (ID3 TCON) supports multiple values
-        if hasattr(md, 'genres') and md.genres:
-            track.add(mutagen.TCON(encoding = 3, text = md.genres))
-        track.add(mutagen.TPUB(encoding = 3, text = md.publisher))
-        track.add(mutagen.TXXX(encoding = 3, desc='description', text = md.summary))
-        track.add(mutagen.TXXX(encoding = 3, desc='subtitle', text = md.subtitle))
-        track.add(mutagen.TXXX(encoding = 3, desc='isbn', text = md.isbn))
-        track.add(mutagen.TXXX(encoding = 3, desc='asin', text = md.asin))
-        track.add(mutagen.TXXX(encoding = 3, desc='publisher', text = md.publisher))
-
-    elif isinstance(track, mp4.MP4):
-        log.debug("Cleaning mp4/m4b metadata")
-        
-        track['\xa9nam'] = md.title
-        track['\xa9day'] = md.publishYear
-        # Series index (volume number in series) - use custom freeform key
-        # Note: trkn is for track numbers within an album, not series position
-        if md.volumeNumber:
-            track['----:com.thovin:series_index'] = mutagen.mp4.MP4FreeForm(str(md.volumeNumber).encode('utf-8'))
-        # Authors (MP4) - support multiple values
-        if hasattr(md, 'authors') and md.authors:
-            track['\xa9aut'] = md.authors
-        else:
-            track['\xa9aut'] = md.author
-        # Genres (MP4)
-        if hasattr(md, 'genres') and md.genres:
-            track['\xa9gen'] = md.genres
-        track['\xa9des'] = md.summary
-        # Narrators (MP4) - support multiple values
-        if hasattr(md, 'narrators') and md.narrators:
-            track['\xa9nrt'] = md.narrators
-        else:
-            track['\xa9nrt'] = md.narrator
-        track['----:com.thovin:isbn'] = mutagen.mp4.MP4FreeForm(md.isbn.encode('utf-8'))
-        track['----:com.thovin:asin'] = mutagen.mp4.MP4FreeForm(md.asin.encode('utf-8'))
-        track['----:com.thovin:series'] = mutagen.mp4.MP4FreeForm(md.series.encode('utf-8'))
 
     elif isinstance(track, flac.FLAC):
         log.debug("Cleaning FLAC metadata")

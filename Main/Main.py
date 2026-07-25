@@ -1,4 +1,5 @@
 import argparse
+import json
 import Settings
 import Util
 import Processing
@@ -57,6 +58,30 @@ def _wait_for_keypress(prompt: str = "Press any key to exit...") -> None:
     except Exception:
         # Last-resort: don't block if anything unexpected happens
         return
+def applySavedSettings(args, parser):
+    #Saved values fill in for any option not explicitly given on the command line.
+    try:
+        with open(Settings.SETTINGS_FILE, 'r') as inFile:
+            saved = json.load(inFile)
+    except FileNotFoundError:
+        log.warning("No saved settings found (settings.json). Skipping load.")
+        return
+
+    specified = set()
+    for token in sys.argv[1:]:
+        option = token.split('=', 1)[0]
+        action = parser._option_string_actions.get(option)
+        if action:
+            specified.add(action.dest)
+
+    for key, value in saved.items():
+        if key in ('save', 'load', 'default') or key in specified or not hasattr(args, key):
+            continue
+        setattr(args, key, value)
+
+    log.info("Loaded saved settings from settings.json")
+
+
 def main(args):
     #Yes, I know this approach isn't super elegant. Feel free to recommend an alternative that isn't more of a pain in the ass like a config file.
     global settings
@@ -75,14 +100,14 @@ def main(args):
 def processBooks():
     global settings
 
-    if (settings.recurseFetch and settings.recurseCombine) or (settings.recurseFetch and settings.recursePreserve) or (settings.recurseCombine and settings.recursePreserve):
-        log.critical("Incompatible processing modes selected. Enable only one processing mode. Exiting...")
-        sys.exit()
-
-    elif settings.recurseFetch:
+    #recursive modes are enforced as mutually exclusive by argparse
+    if settings.recurseFetch:
         Processing.recursivelyFetchBatch()
 
     elif settings.recurseCombine:
+        if not settings.move:
+            log.critical("--recurseCombine currently requires --move: copy mode would strand original files in the temp folder. Exiting...")
+            sys.exit(1)
         Processing.recursivelyCombineBatch()
 
     elif settings.recursePreserve:
@@ -102,19 +127,21 @@ if __name__ == "__main__":
     parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
     parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
     parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPF"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
-    parser.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default
+    savedSettings = parser.add_mutually_exclusive_group()
+    savedSettings.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default (deletes settings.json)
     parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
     parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
     parser.add_argument("-I", "--input", required = True) #input folder
-    parser.add_argument("-L", "--load", action = "store_true")  #load saved settings
+    savedSettings.add_argument("-L", "--load", action = "store_true")  #load saved settings. Exclusive with --default
     parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
     parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
     parser.add_argument("-RN", "--rename", default = None) #rename files
-    parser.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
-    parser.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
-    parser.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
+    recursiveModes = parser.add_mutually_exclusive_group()
+    recursiveModes.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
+    recursiveModes.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
+    recursiveModes.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
     parser.add_argument("-S", "--save", action = "store_true") #save settings for future executions
     parser.add_argument("-W", "--workers", type=int, default = -1)  #set number of workers to process conversions
 
@@ -125,6 +152,16 @@ if __name__ == "__main__":
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
     
     log.debug("Arguments parsed successfully")
+
+    if args.default:
+        try:
+            Settings.SETTINGS_FILE.unlink()
+            log.info("Saved settings reset to defaults (settings.json deleted)")
+        except FileNotFoundError:
+            log.info("No saved settings to reset")
+
+    if args.load:
+        applySavedSettings(args, parser)
 
     final_message = ""
     exit_exc = None
