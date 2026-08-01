@@ -219,7 +219,10 @@ class App(ctk.CTk):
                       command=lambda: self._browseInto(self.outputEntry)).grid(row=0, column=1, padx=(8, 0))
 
         self.moveSwitch = ctk.CTkSwitch(card, text="Move files (default: copy)", font=font13)
-        self.moveSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 12))
+        self.moveSwitch.grid(row=3, column=0, sticky="w", padx=PAD, pady=(0, 8))
+
+        self.dryRunSwitch = ctk.CTkSwitch(card, text="Dry run (list actions, write nothing)", font=font13)
+        self.dryRunSwitch.grid(row=4, column=0, sticky="w", padx=PAD, pady=(0, 12))
 
         # --- Processing mode ---
         card = self._sectionCard(form, 1, "PROCESSING MODE")
@@ -475,6 +478,7 @@ class App(ctk.CTk):
             "input": self.inputEntry.get().strip(),
             "output": self.outputEntry.get().strip() or None,
             "move": bool(self.moveSwitch.get()),
+            "dryRun": bool(self.dryRunSwitch.get()),
             "recurseFetch": mode == "Recurse fetch",
             "recurseCombine": mode == "Recurse combine",
             "recursePreserve": False,
@@ -489,6 +493,7 @@ class App(ctk.CTk):
 
     def _saveSettings(self):
         values = self._formValues()
+        values.pop("dryRun", None)  #dry run is a per-run toggle, never persisted (matches CLI)
         try:
             values["batch"] = int(values["batch"])
             values["workers"] = int(values["workers"])

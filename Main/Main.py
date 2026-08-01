@@ -75,7 +75,7 @@ def applySavedSettings(args, parser):
             specified.add(action.dest)
 
     for key, value in saved.items():
-        if key in ('save', 'load', 'default') or key in specified or not hasattr(args, key):
+        if key in ('save', 'load', 'default', 'dryRun') or key in specified or not hasattr(args, key):
             continue
         setattr(args, key, value)
 
@@ -92,8 +92,9 @@ def main(args):
     FileMerger.loadSettings()
     BookStatus.loadSettings()
 
-    log.debug("Creating output directory if not exists: " + settings.output)
-    Path(settings.output).mkdir(parents = True, exist_ok = True)
+    if not settings.dryRun:
+        log.debug("Creating output directory if not exists: " + settings.output)
+        Path(settings.output).mkdir(parents = True, exist_ok = True)
     processBooks()
 
 
@@ -135,6 +136,7 @@ if __name__ == "__main__":
     savedSettings.add_argument("-L", "--load", action = "store_true")  #load saved settings. Exclusive with --default
     parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
+    parser.add_argument("-DR", "--dryRun", action = "store_true") #list what would be done without copying, moving, converting, or tagging anything (fetch skipped)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
     parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
     parser.add_argument("-RN", "--rename", default = None) #rename files

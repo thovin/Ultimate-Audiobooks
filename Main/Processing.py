@@ -69,6 +69,50 @@ def processConversions():
             except Exception as e:
                 log.error("Error processing conversion: " + str(e))
 
+def _dryRunSteps(combine=False):
+    #Short human phrases for the per-book pipeline implied by the current settings, mirroring
+    #processFile's decision flow. Keep in sync with processFile. No disk access.
+    steps = []
+    if combine:            steps.append("combine chapters")
+    if settings.fetch:     steps.append(f"fetch metadata ({settings.fetch})")
+    if settings.create:    steps.append(f"create {settings.create} sidecar")
+    if settings.convert:   steps.append("convert .m4b")
+    if settings.clean:     steps.append("write tags")
+    steps.append("move" if settings.move else "copy")
+    return steps
+
+
+def _printDryRunPlan(books, combine=False):
+    #Emit the whole dry-run summary as one grouped log entry: the shared pipeline printed once,
+    #then a compact per-book list. books: list of (label, detail-or-None), detail e.g. "(2 chapters)".
+    verb = "move" if settings.move else "copy"
+    modeNote = "originals removed from source" if settings.move else "originals left in place"
+    dest = settings.output + ("  (per-book Author/Title depends on fetch)" if settings.fetch else "")
+    lines = ["[DRY RUN] Planned run — nothing will be written",
+             f"  Output:    {dest}",
+             f"  Mode:      {verb} ({modeNote})",
+             f"  Each book: {' → '.join(_dryRunSteps(combine))}",
+             "",
+             f"  {len(books)} book(s) to {'assemble' if combine else 'process'}:"]
+    for label, detail in books:
+        lines.append(f"    {label}" + (f"  {detail}" if detail else ""))
+    log.info("\n".join(lines))
+
+
+def dryRunCombine(infolder):
+    #Folder-level preview of recurse-combine without invoking the ffmpeg merge. Each
+    #subfolder that holds audio files is treated as one book (as combineAndFindChapters does).
+    books = []
+    for folder in sorted(p for p in infolder.rglob('*') if p.is_dir()):
+        files = getAudioFiles(folder)
+        if files:
+            books.append((folder.name, f"({len(files)} chapter{'s' if len(files) != 1 else ''})"))
+    if not books:
+        log.info("[DRY RUN] no subfolders with audio files found to combine.")
+        return
+    _printDryRunPlan(books, combine=True)
+
+
 #TODO print log info place in batch
 def processFile(file):
     log.info(f"Processing {file.name}")
@@ -147,6 +191,10 @@ def recursivelyCombineBatch():
     log.info("Begin recursively finding, combining, and processing chapter books")
     infolder = Path(settings.input)
 
+    if settings.dryRun:
+        dryRunCombine(infolder)
+        return
+
     outFolder = infolder.joinpath("Ultimate temp")
 
     if outFolder.is_dir():
@@ -178,6 +226,10 @@ def singleLevelBatch(infolder = None):
         infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch)
 
+    if settings.dryRun:
+        _printDryRunPlan([(f.name, None) for f in files])
+        return
+
     for file in files:
         processFile(file)
         
@@ -191,6 +243,10 @@ def recursivelyFetchBatch():    #Since the only difference is passing true to ge
     log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
     infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch, True)
+
+    if settings.dryRun:
+        _printDryRunPlan([(f.name, None) for f in files])
+        return
 
     for file in files:
         processFile(file)
