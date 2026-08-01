@@ -609,6 +609,20 @@ def getAudioFiles(folderPath, batch = -1, recurse = False):
         return files[:batch]
 
 
+def getAudioCodec(file):
+    #Returns the lowercased audio codec name (e.g. 'aac', 'mp3'), or None if ffprobe fails / no audio stream found
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+             '-show_entries', 'stream=codec_name',
+             '-of', 'default=noprint_wrappers=1:nokey=1', str(file)],
+            capture_output=True, text=True, check=True)
+        codec = result.stdout.strip().lower()
+        return codec if codec else None
+    except subprocess.CalledProcessError:
+        return None
+
+
 def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
@@ -639,7 +653,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
            '-y',        #overwrite leftover temp output from a previous crashed run
            '-i', str(file),  #input file (convert Path to string for subprocess)
-           '-codec', 'copy', #copy audio streams instead of re-encoding
+           '-c:a', 'aac', '-q:a', '3', #transcode to AAC (MP3-in-MP4 is nonstandard; Apple's AVFoundation won't decode it)
            '-vn',   #disable video
            # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
            # '-loglevel', 'error',
@@ -668,10 +682,30 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         except subprocess.CalledProcessError as e:
             return conversionFailed()
 
-    elif type == '.mp4' or type == '.m4a':
-        log.debug("Moving MP4/M4A audio into M4B container")
-        #already an MP4 container; a rename is all that's needed. shutil.move handles cross-device paths.
-        return Path(shutil.move(str(file), str(newPath))) #if not settings.move, a copy is created which this moves. Nondestructive.
+    elif type == '.mp4' or type == '.m4a' or type == '.m4b':
+        codec = getAudioCodec(file)
+        if codec in ('aac', 'alac'):
+            log.debug("Moving MP4/M4A/M4B audio into M4B container")
+            #already an MP4 container with Apple-compatible audio; a rename is all that's needed. shutil.move handles cross-device paths.
+            return Path(shutil.move(str(file), str(newPath))) #if not settings.move, a copy is created which this moves. Nondestructive.
+
+        log.debug(f"Transcoding non-AAC/ALAC audio ({codec}) to AAC for M4B compatibility")
+        cmd_mp4 = ['ffmpeg',
+                   '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+                   '-y',        #overwrite leftover temp output from a previous crashed run
+                   '-i', str(file),
+                   '-c:a', 'aac', '-q:a', '3', #transcode to AAC (source codec isn't Apple-compatible in an MP4 container)
+                   '-vn',   #disable video
+                   '-hide_banner',
+                   '-loglevel', 'error',
+                   '-stats',
+                   str(tempPath)]
+        try:
+            subprocess.run(cmd_mp4, check=True)
+            file.unlink()
+            return tempPath.rename(newPath)
+        except subprocess.CalledProcessError as e:
+            return conversionFailed()
 
     elif type == '.flac':
         log.debug("Converting FLAC to M4B")

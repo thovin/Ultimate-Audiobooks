@@ -108,7 +108,7 @@ def processFile(file):
         if settings.create:
             createOpf(md)
 
-        if settings.convert and type != '.m4b':
+        if settings.convert:
             log.debug(f"Queueing {file.name} for conversion")
             conversions.append(Conversion(file, type, md))
             return
@@ -119,7 +119,7 @@ def processFile(file):
             #if copying, we will only clean the copied file
             cleanMetadata(track, md)
 
-    if settings.convert and type != '.m4b':
+    if settings.convert:
         conversions.append(Conversion(file, type, md))
         return
 
