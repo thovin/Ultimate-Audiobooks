@@ -5,7 +5,7 @@ import mutagen
 import mutagen.mp3
 from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
                   getAudioFiles, getUniquePath, calculateWorkerCount, createOpf)
-from FileMerger import combineAndFindChapters
+from FileMerger import combineAndFindChapters, pendingMerges, runMergeJob, failMerge, finishMerge
 from BookStatus import skipBook, failBook
 import Reporter
 import LogSetup
@@ -78,10 +78,16 @@ def _drainEvents(events):
             Reporter.replay(item)
 
 
-def processConversions():
-    Reporter.phaseStarted(f"Converting {len(conversions)} file{'s' if len(conversions) != 1 else ''}",
-                          len(conversions))
+def processMerge(job, settings, events=None):  #run through ProcessPoolExecutor, like processConversion
+    if events is not None:
+        Reporter.setReporter(Reporter.QueueReporter(events))
+        LogSetup.setupWorkerLogging(events)
 
+    Reporter.setCurrentBook(Path(job.folderPath))
+    return runMergeJob(job)
+
+
+def _workerCount():
     numWorkers = settings.workers
     if numWorkers == -1:
         numWorkers = math.floor(calculateWorkerCount())
@@ -91,36 +97,79 @@ def processConversions():
         else:
             numWorkers = 1
             log.debug("Number of workers not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
+    return numWorkers
 
+
+def _runInPool(worker, jobs, bookOf, onResult, onError):
+    """Run worker(job, settings, events) for every job in a process pool, replaying the workers' events
+    into this process's reporter. onResult/onError run here in the parent, with the current book set."""
     with multiprocessing.Manager() as manager:
         events = manager.Queue()
 
-        with ProcessPoolExecutor(max_workers=numWorkers) as controller:
-            futures = {controller.submit(processConversion, c, settings, events): c
-                       for c in conversions}
+        with ProcessPoolExecutor(max_workers=_workerCount()) as controller:
+            futures = {controller.submit(worker, j, settings, events): j for j in jobs}
 
             pending = set(futures)
             while pending:
-                #short timeout so worker progress reaches the front end while conversions run
+                #short timeout so worker progress reaches the front end while jobs run
                 done, pending = wait(pending, timeout=0.2)
                 _drainEvents(events)
 
                 for future in done:
-                    conversion = futures[future]
+                    job = futures[future]
                     #name the book before reporting: this loop runs in the parent, where the current
                     #book is still whichever one the serial loop finished with
-                    Reporter.setCurrentBook(Path(conversion.file))
+                    Reporter.setCurrentBook(bookOf(job))
                     try:
-                        future.result()
-                        Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name)
+                        result = future.result()
                     except Exception as e:
-                        log.error("Error processing conversion: " + str(e))
-                        failBook(conversion.file, "Conversion raised an error")
+                        onError(job, e)
+                    else:
+                        onResult(job, result)
 
             _drainEvents(events)
 
+
+def processConversions():
+    Reporter.phaseStarted(f"Converting {len(conversions)} file{'s' if len(conversions) != 1 else ''}",
+                          len(conversions))
+
+    def onResult(conversion, _):
+        Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name)
+
+    def onError(conversion, e):
+        log.error("Error processing conversion: " + str(e))
+        failBook(conversion.file, "Conversion raised an error")
+
+    _runInPool(processConversion, list(conversions), lambda c: Path(c.file), onResult, onError)
+
     Reporter.phaseFinished("Conversions complete")
     conversions.clear()
+
+
+def processMerges():
+    #transcoding merges (FLAC chapters) were queued by FileMerger; each is a full AAC encode
+    if not pendingMerges:
+        return
+
+    Reporter.phaseStarted(f"Merging {len(pendingMerges)} book{'s' if len(pendingMerges) != 1 else ''}",
+                          len(pendingMerges))
+
+    def onResult(job, ok):
+        if ok:
+            finishMerge(job)
+            Reporter.bookFinished(Reporter.STATUS_OK, job.folderPath.name)
+        else:
+            failMerge(job)
+
+    def onError(job, e):
+        log.error("Error merging chapters: " + str(e))
+        failMerge(job)
+
+    _runInPool(processMerge, list(pendingMerges), lambda j: Path(j.folderPath), onResult, onError)
+
+    Reporter.phaseFinished("Merges complete")
+    pendingMerges.clear()
 
 def _dryRunSteps(combine=False):
     #Short human phrases for the per-book pipeline implied by the current settings, mirroring
@@ -255,7 +304,9 @@ def recursivelyCombineBatch():
         shutil.rmtree(outFolder)
 
     outFolder.mkdir()
+    pendingMerges.clear()
     combineAndFindChapters(infolder, outFolder, 1, infolder)
+    processMerges()
 
     Reporter.phaseFinished("Chapter files combined into the temp folder")
     singleLevelBatch(outFolder)

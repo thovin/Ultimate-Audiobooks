@@ -1013,7 +1013,9 @@ def calculateWorkerCount():
     numCores = os.cpu_count()
     availableMemory = psutil.virtual_memory().available / (1024 ** 3)   #converts to Gb
 
-    return numCores / 2 if numCores / 2 < availableMemory - 2 else availableMemory - 2
+    #ffmpeg's native AAC encoder is single-threaded, so one job saturates about one core; leave a core
+    #free for the parent process and the desktop. An audio transcode needs well under 0.25 GB.
+    return min(numCores - 1, availableMemory / 0.25)
 
 def sanitizeFile(file):
     file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)

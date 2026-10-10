@@ -119,6 +119,52 @@ def orderByTitle(tracks, folderPath=None):
             return tracksOut
     
 
+class MergeJob:
+    #pickled to ProcessPoolExecutor workers, so hold only simple values
+    def __init__(self, folderPath, cmd, totalSeconds, newFilepath, concatPath, chapPath, outPath, move, chapters):
+        self.folderPath = folderPath
+        self.cmd = cmd
+        self.totalSeconds = totalSeconds  #runtime of the assembled book, for progress
+        self.newFilepath = newFilepath
+        self.concatPath = concatPath
+        self.chapPath = chapPath
+        self.outPath = outPath
+        self.move = move
+        self.chapters = chapters
+
+
+#merges that must transcode (FLAC) are queued here and run in parallel by Processing.processMerges,
+#since each is a full AAC encode. Stream-copy merges are fast and run inline.
+pendingMerges = []
+
+
+def runMergeJob(job):
+    """The ffmpeg half of a merge. Safe to run in a worker: touches no book-status state. Returns True on success."""
+    Reporter.bookStep(Reporter.STEP_MERGE, job.folderPath.name,
+                      f"{job.chapters} chapter{'s' if job.chapters != 1 else ''}")
+    log.debug("Begin combining")
+    return runFfmpeg(job.cmd, Reporter.STEP_MERGE, job.folderPath.name, job.totalSeconds)
+
+
+def failMerge(job):
+    failBook(job.folderPath, "ffmpeg error during chapter merge")
+
+
+def finishMerge(job):
+    """The parent-side bookkeeping after a successful merge."""
+    # Register original path for merged file in temp folder
+    if job.outPath:
+        setOriginalPath(job.newFilepath, job.folderPath)
+
+    if job.move:
+        with open(job.concatPath, 'r') as t:
+            for line in t:
+                os.remove(line[5:].strip().strip('\''))
+
+    os.remove(job.concatPath)
+    os.remove(job.chapPath)
+
+
 def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin merging chapters in " + folderPath.name)
     files = [f for f in folderPath.glob('*') if f.suffix.lower() in ('.mp3', '.mp4')]
@@ -144,11 +190,7 @@ def mergeBook(folderPath, outPath = False, move = False):
     newFilepath = getUniquePath(newName, outPath if outPath else folderPath)
 
     log.debug(str(len(files)) + " chapters detected")
-    Reporter.bookStep(Reporter.STEP_MERGE, folderPath.name,
-                      f"{len(files)} chapter{'s' if len(files) != 1 else ''}")
-
     #TODO (rename) when --rename is working, apply here
-    #TODO process merges at end like conversions?
     #TODO improve processing for multiple disks not in metadata
 
     for i in range(len(files)):
@@ -187,23 +229,19 @@ def mergeBook(folderPath, outPath = False, move = False):
     #sitting silent through what is usually the longest part of a run
     totalSeconds = sum(getattr(p.info, 'length', 0) or 0 for p in pieces)
 
-    log.debug("Begin combining")
-    if not runFfmpeg(cmd, Reporter.STEP_MERGE, folderPath.name, totalSeconds):
-        failBook(folderPath, "ffmpeg error during chapter merge")
-        return
+    job = MergeJob(folderPath, cmd, totalSeconds, newFilepath, tempConcatFilePath, tempChapFilePath,
+                   outPath, move, len(files))
 
-    # Register original path for merged file in temp folder
-    if outPath:
-        setOriginalPath(newFilepath, folderPath)
+    if isFlac:
+        #a full transcode: defer so every such book can encode at once
+        pendingMerges.append(job)
+        return None
 
-    if move:
-        with open(tempConcatFilePath, 'r') as t:
-            for line in t:
-                os.remove(line[5:].strip().strip('\''))
+    if not runMergeJob(job):
+        failMerge(job)
+        return None
 
-    os.remove(tempConcatFilePath)
-    os.remove(tempChapFilePath)
-
+    finishMerge(job)
     return newFilepath
 
 def orderFiles(files, folderPath=None):
@@ -312,7 +350,8 @@ def combineAndFindChapters(startPath, outPath, counter, root):
     elif len(files) > 1:
         Reporter.bookStarted(counter, -1, startPath.name, bookId=startPath)
         counter += 1
-        #failures are reported by mergeBook itself (via failBook), so only the success needs closing
+        #failures are reported by mergeBook itself (via failBook), so only the success needs closing.
+        #Deferred (transcoding) merges return None and are closed out by Processing.processMerges.
         if mergeBook(startPath, outPath, settings.move):
             Reporter.bookFinished(Reporter.STATUS_OK, startPath.name)
 
