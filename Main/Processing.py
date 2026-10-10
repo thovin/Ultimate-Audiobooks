@@ -7,7 +7,9 @@ from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM
                   getAudioFiles, getUniquePath, calculateWorkerCount, createOpf)
 from FileMerger import combineAndFindChapters
 from BookStatus import skipBook, failBook
-import os
+import Reporter
+import multiprocessing
+import queue
 import re
 import shutil
 from concurrent.futures import ProcessPoolExecutor, wait
@@ -19,16 +21,23 @@ log = logging.getLogger(__name__)
 settings = None
 conversions = []
 
+
 def loadSettings():
     global settings
     settings = getSettings()
+    conversions.clear()  #a fresh run must not inherit the previous run's queue (GUI reuses the process)
 
-def processConversion(c, settings): #This is run through ProcessPoolExecutor, which limits access to globals
+def processConversion(c, settings, events=None): #This is run through ProcessPoolExecutor, which limits access to globals
+    #Workers start from a fresh interpreter under the forkserver start method, so they inherit no
+    #reporter. Install one that ships events back to the parent over the shared queue.
+    if events is not None:
+        Reporter.setReporter(Reporter.QueueReporter(events))
+
     file = c.file
     type = c.type
     md = c.md
 
-    file = convertToM4B(file, type, md, settings)
+    file = convertToM4B(file, type, md, settings, c.duration)
     if file is None:
         return  #conversion failed; book already marked as failed
 
@@ -37,7 +46,7 @@ def processConversion(c, settings): #This is run through ProcessPoolExecutor, wh
     if settings.fetch and settings.clean:
         #the converted file is a new file in both move and copy modes, so always safe to clean
         cleanMetadata(track, md)
-    
+
     if settings.rename:
         #TODO rename
         #again, only apply to copy
@@ -45,29 +54,58 @@ def processConversion(c, settings): #This is run through ProcessPoolExecutor, wh
 
 
 
+def _drainEvents(events):
+    #Replay worker events into this process's reporter, so conversions narrate themselves in
+    #whichever front end is running.
+    while True:
+        try:
+            Reporter.replay(events.get_nowait())
+        except queue.Empty:
+            return
+        except Exception:
+            return  #manager queue torn down
+
+
 def processConversions():
-    log.info("Processing conversions")
+    Reporter.phaseStarted(f"Converting {len(conversions)} file{'s' if len(conversions) != 1 else ''}",
+                          len(conversions))
 
     numWorkers = settings.workers
     if numWorkers == -1:
         numWorkers = math.floor(calculateWorkerCount())
 
         if numWorkers > 0:
-            log.info(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
+            log.debug(f"Number of workers not specified, set to {numWorkers} based on system CPU count and available memory")
         else:
             numWorkers = 1
-            log.info("Number of workers not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
+            log.debug("Number of workers not specified and unable to retrieve relevant system information. Defaulting to 1 worker.")
 
-    with ProcessPoolExecutor(max_workers=numWorkers) as controller:
-        futures = [controller.submit(processConversion, c, settings) for c in conversions]
+    with multiprocessing.Manager() as manager:
+        events = manager.Queue()
 
-        wait(futures)
+        with ProcessPoolExecutor(max_workers=numWorkers) as controller:
+            futures = {controller.submit(processConversion, c, settings, events): c
+                       for c in conversions}
 
-        for future in futures:
-            try:
-                future.result()
-            except Exception as e:
-                log.error("Error processing conversion: " + str(e))
+            pending = set(futures)
+            while pending:
+                #short timeout so worker progress reaches the front end while conversions run
+                done, pending = wait(pending, timeout=0.2)
+                _drainEvents(events)
+
+                for future in done:
+                    conversion = futures[future]
+                    try:
+                        future.result()
+                        Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name)
+                    except Exception as e:
+                        log.error("Error processing conversion: " + str(e))
+                        failBook(conversion.file, "Conversion raised an error")
+
+            _drainEvents(events)
+
+    Reporter.phaseFinished("Conversions complete")
+    conversions.clear()
 
 def _dryRunSteps(combine=False):
     #Short human phrases for the per-book pipeline implied by the current settings, mirroring
@@ -82,21 +120,18 @@ def _dryRunSteps(combine=False):
     return steps
 
 
-def _printDryRunPlan(books, combine=False):
-    #Emit the whole dry-run summary as one grouped log entry: the shared pipeline printed once,
-    #then a compact per-book list. books: list of (label, detail-or-None), detail e.g. "(2 chapters)".
-    verb = "move" if settings.move else "copy"
-    modeNote = "originals removed from source" if settings.move else "originals left in place"
-    dest = settings.output + ("  (per-book Author/Title depends on fetch)" if settings.fetch else "")
-    lines = ["[DRY RUN] Planned run — nothing will be written",
-             f"  Output:    {dest}",
-             f"  Mode:      {verb} ({modeNote})",
-             f"  Each book: {' → '.join(_dryRunSteps(combine))}",
-             "",
-             f"  {len(books)} book(s) to {'assemble' if combine else 'process'}:"]
-    for label, detail in books:
-        lines.append(f"    {label}" + (f"  {detail}" if detail else ""))
-    log.info("\n".join(lines))
+def _reportDryRunPlan(books, combine=False, emptyNote="no audio files found in the input folder"):
+    #Describe the run rather than performing it. Every front end renders the same plan object.
+    #books: list of (label, detail-or-None), detail e.g. "(2 chapters)".
+    Reporter.dryRunPlanned(Reporter.DryRunPlan(
+        output=settings.output,
+        verb="move" if settings.move else "copy",
+        modeNote="originals removed from source" if settings.move else "originals left in place",
+        perBookDest=bool(settings.fetch),
+        steps=_dryRunSteps(combine),
+        books=list(books),
+        combine=combine,
+        emptyNote=emptyNote))
 
 
 def dryRunCombine(infolder):
@@ -109,15 +144,12 @@ def dryRunCombine(infolder):
         files = getAudioFiles(folder)
         if files:
             books.append((folder.name, f"({len(files)} chapter{'s' if len(files) != 1 else ''})"))
-    if not books:
-        log.info("[DRY RUN] no subfolders with audio files found to combine.")
-        return
-    _printDryRunPlan(books, combine=True)
+    _reportDryRunPlan(books, combine=True,
+                      emptyNote="no subfolders with audio files found to combine")
 
 
-#TODO print log info place in batch
-def processFile(file):
-    log.info(f"Processing {file.name}")
+def processFile(file, index=0, total=0):
+    Reporter.bookStarted(index, total, file.name)
     type = Path(file).suffix.lower()
     md = Metadata()
     md.bookPath = settings.output
@@ -133,6 +165,8 @@ def processFile(file):
         failBook(file, "Unable to process file")
         return
 
+    #read once here: the conversion worker needs it for progress and cannot reopen a moved file
+    duration = float(getattr(track.info, 'length', -1) or -1)
 
     if settings.fetch:
         #existing OPF is ignored in single level batch
@@ -146,7 +180,7 @@ def processFile(file):
         cleanAuthor = re.sub(r'[<>"|?’:,*\']', '', md.author)
         cleanTitle = re.sub(r'[<>"|?’:,*\']', '', md.title)
         md.bookPath = settings.output + f"/{cleanAuthor}/{cleanTitle}"
-        
+
 
         log.debug(f"Making directory {md.bookPath} if not exists")
         Path(md.bookPath).mkdir(parents = True, exist_ok = True)
@@ -156,7 +190,7 @@ def processFile(file):
 
         if settings.convert:
             log.debug(f"Queueing {file.name} for conversion")
-            conversions.append(Conversion(file, type, md))
+            conversions.append(Conversion(file, type, md, duration))
             return
         else:
             newPath = getUniquePath(Path(cleanTitle).with_suffix(type).name, md.bookPath)
@@ -166,37 +200,38 @@ def processFile(file):
             cleanMetadata(track, md)
 
     if settings.convert:
-        conversions.append(Conversion(file, type, md))
+        conversions.append(Conversion(file, type, md, duration))
         return
 
     if settings.rename:
         #TODO rename
         #again, only apply to copy
         pass
-    
+
     if newPath == "":
         newPath = getUniquePath(file.name, md.bookPath)
     if settings.move:
-        log.info("Moving " + file.name + " to " + md.bookPath)
+        Reporter.bookStep(Reporter.STEP_MOVE, file.name, md.bookPath)
         # TODO (rename) temporarily use title while working on rename
         shutil.move(str(file), str(newPath))  #Path.rename fails when input and output are on different drives
     else:
-        log.info("Copying " + file.name + " to " + md.bookPath)
+        Reporter.bookStep(Reporter.STEP_COPY, file.name, md.bookPath)
         shutil.copy(file, newPath)
 
         if settings.fetch and settings.clean:
             cleanMetadata(mutagen.File(newPath, easy=True), md)
 
-        
+    Reporter.bookFinished(Reporter.STATUS_OK, file.name)
+
 
 def recursivelyCombineBatch():
-    log.info("Begin recursively finding, combining, and processing chapter books")
     infolder = Path(settings.input)
 
     if settings.dryRun:
         dryRunCombine(infolder)
         return
 
+    Reporter.phaseStarted("Combining chapter folders into books")
     outFolder = infolder.joinpath("Ultimate temp")
 
     if outFolder.is_dir():
@@ -205,8 +240,8 @@ def recursivelyCombineBatch():
 
     outFolder.mkdir()
     combineAndFindChapters(infolder, outFolder, 1, infolder)
-    
-    log.info("Chapter files successfully combined and stored in temp folder. Initiating single level batch process on combined books.")
+
+    Reporter.phaseFinished("Chapter files combined into the temp folder")
     singleLevelBatch(outFolder)
 
     log.debug("Removing temp folder")
@@ -218,45 +253,40 @@ def recursivelyCombineBatch():
 
 
 def recursivelyPreserveBatch():
-    log.info("Begin recursively finding and processing chapter books (chapters will be preserved)")
+    Reporter.phaseStarted("Recurse preserve is not implemented yet")
     return
 
 
+def _runBatch(files):
+    for index, file in enumerate(files, 1):
+        processFile(file, index, len(files))
+
+    if len(conversions) > 0:
+        processConversions()
+
+
 def singleLevelBatch(infolder = None):
-    log.info("Begin single level batch processing")
     if infolder == None:
         infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch)
 
     if settings.dryRun:
-        _printDryRunPlan([(f.name, None) for f in files])
+        _reportDryRunPlan([(f.name, None) for f in files])
         return
 
-    for file in files:
-        processFile(file)
-        
-    if len(conversions) > 0:
-        processConversions()
-
-    log.info("Batch completed. Enjoy your audiobooks!")
+    Reporter.phaseStarted("Processing books", len(files))
+    _runBatch(files)
+    Reporter.phaseFinished("Batch completed. Enjoy your audiobooks!")
 
 
 def recursivelyFetchBatch():    #Since the only difference is passing true to getAudioFiles, I could probably fold this into another batch
-    log.info("Begin processing complete books in all subdirectories (recursively fetch batch)")
     infolder = Path(settings.input)
     files = getAudioFiles(infolder, settings.batch, True)
 
     if settings.dryRun:
-        _printDryRunPlan([(f.name, None) for f in files])
+        _reportDryRunPlan([(f.name, None) for f in files])
         return
 
-    for file in files:
-        processFile(file)
-        
-    if len(conversions) > 0:
-        processConversions()
-
-    log.info("Batch completed. Enjoy your audiobooks!")
-
- 
-    return
+    Reporter.phaseStarted("Processing complete books in all subfolders", len(files))
+    _runBatch(files)
+    Reporter.phaseFinished("Batch completed. Enjoy your audiobooks!")

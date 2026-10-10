@@ -3,6 +3,8 @@ from pathlib import Path
 from Settings import getSettings
 import shutil
 
+import Reporter
+
 log = logging.getLogger(__name__)
 settings = None
 
@@ -103,10 +105,10 @@ def _moveItem(item, destDir, itemType="book"):
     try:
         if item.is_dir():
             shutil.move(str(item), str(dest))
-            log.info(f"Moved {itemType} folder: {item.name} -> {dest.name}")
+            log.debug(f"Moved {itemType} folder: {item.name} -> {dest.name}")
         else:
             item.rename(dest)
-            log.info(f"Moved {itemType} file: {item.name} -> {dest.name}")
+            log.debug(f"Moved {itemType} file: {item.name} -> {dest.name}")
         return True
     except Exception as e:
         log.error(f"Error moving {itemType} {item.name}: {e}")
@@ -128,16 +130,15 @@ def skipBook(item, reason=None):
         return
     
     _skips.append(item)
-    
-    reason_msg = f" - {reason}" if reason else ""
+
     relPath = _getRelativePath(item)
-    log.info(f"Skipping book: \"{relPath}\"{reason_msg}")
+    Reporter.bookFinished(Reporter.STATUS_SKIPPED, relPath, reason)
 
     # In copy mode the run is non-destructive, so record the skip but leave the original in place
     if settings is None:
         loadSettings()
     if settings is not None and not settings.move:
-        log.info(f"Copy mode: leaving \"{item.name}\" in place")
+        log.debug(f"Copy mode: leaving \"{item.name}\" in place")
         return
 
     # Move immediately (directory will be created in _moveItem if needed)
@@ -160,16 +161,15 @@ def failBook(item, reason=None):
         return
     
     _fails.append(item)
-    
-    reason_msg = f" - {reason}" if reason else ""
+
     relPath = _getRelativePath(item)
-    log.error(f"Failed book: \"{relPath}\"{reason_msg}")
+    Reporter.bookFinished(Reporter.STATUS_FAILED, relPath, reason)
 
     # In copy mode the run is non-destructive, so record the failure but leave the original in place
     if settings is None:
         loadSettings()
     if settings is not None and not settings.move:
-        log.info(f"Copy mode: leaving \"{item.name}\" in place")
+        log.debug(f"Copy mode: leaving \"{item.name}\" in place")
         return
 
     # Move immediately (directory will be created in _moveItem if needed)
@@ -200,26 +200,10 @@ def clearFails():
     """Clear the fail list (for testing/reset)."""
     _fails.clear()
 
-def printSummary():
-    """Print a summary of all skipped and failed books at the end."""
-    if len(_skips) == 0 and len(_fails) == 0:
-        log.info("No books were skipped or failed.")
-        return
-    
-    log.info("=" * 60)
-    log.info("SKIP/FAIL SUMMARY")
-    log.info("=" * 60)
-    
-    if len(_skips) > 0:
-        log.info(f"\nSkipped books ({len(_skips)}):")
-        for item in _skips:
-            relPath = _getRelativePath(item)
-            log.info(f"  - {relPath}")
-    
-    if len(_fails) > 0:
-        log.info(f"\nFailed books ({len(_fails)}):")
-        for item in _fails:
-            relPath = _getRelativePath(item)
-            log.info(f"  - {relPath}")
-    
-    log.info("=" * 60)
+def getRelativePaths(items):
+    """Input-relative path strings for a list of skipped or failed items."""
+    return [_getRelativePath(item) for item in items]
+
+def reportSummary(dryRun=False):
+    """Close the run out. Each front end renders the skip/fail lists its own way."""
+    Reporter.runFinished(getRelativePaths(_skips), getRelativePaths(_fails), dryRun)

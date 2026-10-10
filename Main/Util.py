@@ -18,6 +18,7 @@ import urllib.parse
 import re
 import json
 from BookStatus import skipBook, failBook
+import Reporter
 
 log = logging.getLogger(__name__)
 settings = None
@@ -47,10 +48,11 @@ class Metadata:
 
 class Conversion:
     #instances are pickled to ProcessPoolExecutor workers, so hold only simple values (no mutagen objects)
-    def __init__(self, file, type, md):
+    def __init__(self, file, type, md, duration=-1):
         self.file = file
         self.type = type
         self.md = md
+        self.duration = duration  #seconds of audio, so the worker can report conversion progress
 
 
 def getTitle(track):
@@ -111,7 +113,7 @@ def getAuthor(track):
     
 
 def GETpage(url):
-    log.info("GET page: " + url)
+    log.debug("GET page: " + url)
     headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'}
     timer = 2
     while True:
@@ -439,8 +441,9 @@ def open_url_cross_platform(url):
 
 
 #Optional override for how book URLs are obtained during fetch. A provider is a callable
-#(searchText, searchURL, file) -> URL string or "SKIP". The GUI installs its own; the CLI
-#defaults to watching the clipboard (ClipboardUrlProvider).
+#(searchText, searchURL, file, reason) -> URL string or "SKIP", where reason explains why the
+#previous link was rejected (None on the first attempt). The GUI installs its own; the CLI defaults
+#to watching the clipboard (ClipboardUrlProvider).
 urlProvider = None
 
 def setUrlProvider(provider):
@@ -449,21 +452,20 @@ def setUrlProvider(provider):
 
 
 class ClipboardUrlProvider:
-    def __init__(self):
-        self.searchOpened = False
-
-    def __call__(self, searchText, searchURL, file):
+    def __call__(self, searchText, searchURL, file, reason=None):
         #reset the clipboard if it already holds a book link, so re-copying the same link registers as a change
         last = pyperclip.paste()
         if any(sub in last for sub in ("goodreads.com", "audible.com")):
             pyperclip.copy("Ultimate Audiobooks")
             last = "Ultimate Audiobooks"
 
-        if not self.searchOpened:
-            open_url_cross_platform(searchURL)
-            self.searchOpened = True
+        #re-open the search on a retry too: a stale browser tab with no explanation is the worst
+        #place to leave the user, and it matches what the GUI panel does
+        open_url_cross_platform(searchURL)
 
-        log.info("Waiting for URL (copy the book page link, or copy the word 'skip')...")
+        if reason:
+            print(reason)
+        print("Waiting for URL (copy the book page link, or copy the word 'skip')...")
         while True:
             time.sleep(1)
             curr = pyperclip.paste()
@@ -475,7 +477,7 @@ class ClipboardUrlProvider:
 
 
 def fetchMetadata(file, track) -> Metadata:
-    log.info("Fetching metadata")
+    Reporter.bookStep(Reporter.STEP_FETCH, file.name)
     md = Metadata()
     md.title = getTitle(track)
     md.author = getAuthor(track)
@@ -507,8 +509,17 @@ def fetchMetadata(file, track) -> Metadata:
 
     provider = urlProvider if urlProvider is not None else ClipboardUrlProvider()
 
+    def reject(message):
+        #Report why the link was no good and hand the same message back to the provider, so the
+        #next prompt can explain itself instead of leaving the reason in a scrolling log.
+        Reporter.fetchFailed(message, file.name)
+        return message
+
+    reason = None
+
     while True:
-        candidate = provider(searchText, searchURL, file)
+        candidate = provider(searchText, searchURL, file, reason)
+        reason = None
 
         if candidate is None or candidate.strip().upper() == "SKIP":
             skipBook(file, "User skipped during metadata fetch")
@@ -526,7 +537,7 @@ def fetchMetadata(file, track) -> Metadata:
                 # JSON for them (with a title and author), so they must be rejected by URL shape.
                 pathLower = parsed.path.lower()
                 if any(seg in pathLower for seg in ("/series/", "/author/", "/podcast/")):
-                    log.error("That looks like a series, author, or podcast page - not a book page. Please provide a specific book's page link, or skip this book.")
+                    reason = reject("That looks like a series, author, or podcast page - not a book page. Please provide a specific book's page link, or skip this book.")
                     continue
 
                 path_parts = [p for p in parsed.path.split('/') if p]
@@ -544,18 +555,19 @@ def fetchMetadata(file, track) -> Metadata:
                     if qsAsin and re.match(r'^[0-9A-Z]{10}$', qsAsin, re.IGNORECASE):
                         asin_match = qsAsin.upper()
                 if not asin_match:
-                    log.error("Unable to extract ASIN from Audible URL. Please provide a book page link, or skip this book.")
+                    reason = reject("Unable to extract ASIN from Audible URL. Please provide a book page link, or skip this book.")
                     continue
                 md.asin = asin_match
             except Exception:
-                log.exception("Error parsing Audible URL")
+                log.debug("Error parsing Audible URL", exc_info=True)
+                reason = reject("Could not read that Audible URL. Please provide a book page link, or skip this book.")
                 continue
 
             paramRequest = "?response_groups=contributors,product_attrs,product_desc,product_extended_attrs,series"
             targetUrl = f"https://api.audible.com/1.0/catalog/products/{md.asin}" + paramRequest
             page = GETpage(targetUrl)
             if page is None or not getattr(page, "ok", False):
-                log.error("Audible API request failed. Please provide a valid book page link, or skip this book.")
+                reason = reject("Audible API request failed. Please provide a valid book page link, or skip this book.")
                 continue
 
             try:
@@ -566,11 +578,11 @@ def fetchMetadata(file, track) -> Metadata:
                 parseAudibleMd(product, md)
 
                 if not md.title or not md.author:
-                    log.error("Audible link did not yield both title and author. Please provide a valid book page link, or skip this book.")
+                    reason = reject("Audible link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                     continue
                 break
             except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
-                log.error("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Provide a book page link, or skip this book.")
+                reason = reject("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Provide a book page link, or skip this book.")
                 continue
 
 
@@ -579,18 +591,18 @@ def fetchMetadata(file, track) -> Metadata:
             log.debug("Goodreads URL captured: " + candidate)
             page = GETpage(candidate)
             if page is None:
-                log.error("Goodreads page request failed. Please provide a valid book page link, or skip this book.")
+                reason = reject("Goodreads page request failed. Please provide a valid book page link, or skip this book.")
                 continue
             soup = BeautifulSoup(page.text, 'html.parser')
             parseGoodreadsMd(soup, md)
             # Safety net: ensure required fields present
             if not md.title or not md.author:
-                log.error("Goodreads link did not yield both title and author. Please provide a valid book page link, or skip this book.")
+                reason = reject("Goodreads link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                 continue
             break
 
         else:
-            log.error("Link not recognized as an Audible or Goodreads book page. Try again, or skip this book.")
+            reason = reject("Link not recognized as an Audible or Goodreads book page. Try again, or skip this book.")
             continue
 
     return md
@@ -623,13 +635,74 @@ def getAudioCodec(file):
         return None
 
 
-def convertToM4B(file, type, md, settings): #This is run parallel through ProcessPoolExecutor, which limits access to globals
+def getDuration(file):
+    #Seconds of audio, or -1 when it can't be read. Used as the denominator for conversion progress.
+    try:
+        track = mutagen.File(file)
+        return float(track.info.length) if track is not None else -1
+    except Exception:
+        log.debug("Could not read duration of " + str(file), exc_info=True)
+        return -1
+
+
+#ffmpeg's -progress stream is plain key=value lines
+_PROGRESS_LINE = re.compile(r'^([a-z_]+)=(.*)$')
+
+#appended to every ffmpeg command: machine-readable progress on stdout, no CR status line
+FFMPEG_PROGRESS_ARGS = ['-progress', 'pipe:1', '-nostats']
+
+
+def runFfmpeg(cmd, step, label, totalSeconds=-1):
+    """Run ffmpeg, turning its -progress output into StepProgress events. Returns True on success.
+
+    cmd must contain FFMPEG_PROGRESS_ARGS. stderr is folded into stdout so ffmpeg's own messages
+    cannot fill a second pipe and deadlock the read loop; lines that are not key=value progress
+    pairs are collected and logged as warnings once the process exits."""
+    messages = []
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        log.error("ffmpeg not found. Install ffmpeg and make sure it is on PATH.")
+        return False
+
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        match = _PROGRESS_LINE.match(line)
+        if not match:
+            messages.append(line)
+            continue
+        if totalSeconds <= 0:
+            continue
+
+        key, value = match.group(1), match.group(2)
+        if key == 'out_time_us':
+            try:
+                done = int(value) / 1_000_000
+            except ValueError:
+                continue  #ffmpeg reports N/A before the first frame is written
+            Reporter.stepProgress(step, label, min(done, totalSeconds), totalSeconds)
+        elif key == 'progress' and value == 'end':
+            Reporter.stepProgress(step, label, totalSeconds, totalSeconds)
+
+    proc.stdout.close()
+    proc.wait()
+
+    for message in messages:
+        log.warning("ffmpeg: " + message)
+
+    return proc.returncode == 0
+
+
+def convertToM4B(file, type, md, settings, duration=-1): #This is run parallel through ProcessPoolExecutor, which limits access to globals
     #When copying we create the new file in destination, otherwise the new file will be copied and there will be an extra original
     #When moving we convert in place and allow the move to be handled in EOF processing
     #Returns the converted file's path, or None on failure
     file = Path(file)  # Ensure file is a Path object (may be string after ProcessPoolExecutor pickling)
     originalFile = file
-    log.info("Converting " + file.name + " to M4B")
+    label = file.name
+    Reporter.bookStep(Reporter.STEP_CONVERT, label)
 
     #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
     if md.title:
@@ -655,10 +728,9 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
            '-i', str(file),  #input file (convert Path to string for subprocess)
            '-c:a', 'aac', '-q:a', '3', #transcode to AAC (MP3-in-MP4 is nonstandard; Apple's AVFoundation won't decode it)
            '-vn',   #disable video
-           # '-hide_banner', #suppress verbose progress output. Changes to the log level may make this redundant.
-           # '-loglevel', 'error',
+           '-hide_banner',  #suppress version/build info header
            '-loglevel', 'warning',
-           '-stats',    #adds back the progress bar loglevel hides
+           *FFMPEG_PROGRESS_ARGS,
            str(tempPath)]  #convert Path to string for subprocess
 
 
@@ -671,16 +743,16 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
         failBook(file, "Conversion failed")
         return None
 
+    if duration <= 0:
+        duration = getDuration(file)
+
     if type == '.mp3':
         log.debug("Converting MP3 to M4B")
-        try:
-            subprocess.run(cmd, check=True)
-
-            file.unlink() #if not settings.move, a copy is created which this deletes. Nondestructive.
-            return tempPath.rename(newPath)
-
-        except subprocess.CalledProcessError as e:
+        if not runFfmpeg(cmd, Reporter.STEP_CONVERT, label, duration):
             return conversionFailed()
+
+        file.unlink() #if not settings.move, a copy is created which this deletes. Nondestructive.
+        return tempPath.rename(newPath)
 
     elif type == '.mp4' or type == '.m4a' or type == '.m4b':
         codec = getAudioCodec(file)
@@ -698,14 +770,13 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
                    '-vn',   #disable video
                    '-hide_banner',
                    '-loglevel', 'error',
-                   '-stats',
+                   *FFMPEG_PROGRESS_ARGS,
                    str(tempPath)]
-        try:
-            subprocess.run(cmd_mp4, check=True)
-            file.unlink()
-            return tempPath.rename(newPath)
-        except subprocess.CalledProcessError as e:
+        if not runFfmpeg(cmd_mp4, Reporter.STEP_CONVERT, label, duration):
             return conversionFailed()
+
+        file.unlink()
+        return tempPath.rename(newPath)
 
     elif type == '.flac':
         log.debug("Converting FLAC to M4B")
@@ -718,14 +789,13 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
                     '-vn',  #disable video
                     '-hide_banner',  #suppress version/build info header
                     '-loglevel', 'error',
-                    '-stats',  #adds back the progress bar loglevel hides
+                    *FFMPEG_PROGRESS_ARGS,
                     str(tempPath)]
-        try:
-            subprocess.run(cmd_flac, check=True)
-            file.unlink()
-            return tempPath.rename(newPath)
-        except subprocess.CalledProcessError as e:
+        if not runFfmpeg(cmd_flac, Reporter.STEP_CONVERT, label, duration):
             return conversionFailed()
+
+        file.unlink()
+        return tempPath.rename(newPath)
 
     else:
         log.error(f"Unsupported type {type} for conversion of {file.name}")
@@ -733,7 +803,7 @@ def convertToM4B(file, type, md, settings): #This is run parallel through Proces
 
 
 def cleanMetadata(track, md):
-    log.info("Cleaning file metadata")
+    Reporter.bookStep(Reporter.STEP_TAG, md.title or Path(track.filename).name)
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
 
@@ -867,7 +937,7 @@ def cleanMetadata(track, md):
 
 #TODO Either the template or some part of writing into the opf results in some bad fields
 def createOpf(md):
-    log.info("Creating OPF")
+    Reporter.bookStep(Reporter.STEP_SIDECAR, md.title)
     dcLink = "{http://purl.org/dc/elements/1.1/}"
     package = ET.Element("package", version="3.0", xmlns="http://www.idpf.org/2007/opf", unique_identifier="BookId")
     metadata = ET.SubElement(package, "metadata", nsmap={'dc' : dcLink})

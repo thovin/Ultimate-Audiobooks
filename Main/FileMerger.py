@@ -1,14 +1,14 @@
 from Settings import getSettings
 import mutagen
 import re
-import subprocess
 import logging
 import tempfile
 from pathlib import Path
 import os
 import shutil
-from Util import sanitizeFile, getAudioFiles, getUniquePath
+from Util import sanitizeFile, getAudioFiles, getUniquePath, runFfmpeg, FFMPEG_PROGRESS_ARGS
 from BookStatus import skipBook, failBook, setOriginalPath
+import Reporter
 
 log = logging.getLogger(__name__)
 settings = None
@@ -144,6 +144,8 @@ def mergeBook(folderPath, outPath = False, move = False):
     newFilepath = getUniquePath(newName, outPath if outPath else folderPath)
 
     log.debug(str(len(files)) + " chapters detected")
+    Reporter.bookStep(Reporter.STEP_MERGE, folderPath.name,
+                      f"{len(files)} chapter{'s' if len(files) != 1 else ''}")
 
     #TODO (rename) when --rename is working, apply here
     #TODO process merges at end like conversions?
@@ -175,29 +177,30 @@ def mergeBook(folderPath, outPath = False, move = False):
         '-vn',   #disable video
         '-hide_banner',  #suppress version/build info header
         '-loglevel', 'error',
-        '-stats',    #adds back the progress bar loglevel hides
+        *FFMPEG_PROGRESS_ARGS,
         newFilepath
         ]
 
         #TODO manually parse out ffmpeg warnings like "Error reading comment frame, skipped", "Incorrect BOM value", "Application provided invalid, non monotonically increasing dts to muxer in <stream 0: 182540921472 >= 182539260288>"
-    
+
+    #total runtime of the assembled book, so the merge can report real progress rather than
+    #sitting silent through what is usually the longest part of a run
+    totalSeconds = sum(getattr(p.info, 'length', 0) or 0 for p in pieces)
+
     log.debug("Begin combining")
-    try:
-        subprocess.run(cmd, check=True)
-        
-        # Register original path for merged file in temp folder
-        if outPath:
-            setOriginalPath(newFilepath, folderPath)
-
-        if move:
-            with open(tempConcatFilePath, 'r') as t:
-                for line in t:
-                    os.remove(line[5:].strip().strip('\''))
-
-    except subprocess.CalledProcessError as e:
+    if not runFfmpeg(cmd, Reporter.STEP_MERGE, folderPath.name, totalSeconds):
         failBook(folderPath, "ffmpeg error during chapter merge")
         return
-    
+
+    # Register original path for merged file in temp folder
+    if outPath:
+        setOriginalPath(newFilepath, folderPath)
+
+    if move:
+        with open(tempConcatFilePath, 'r') as t:
+            for line in t:
+                os.remove(line[5:].strip().strip('\''))
+
     os.remove(tempConcatFilePath)
     os.remove(tempChapFilePath)
 

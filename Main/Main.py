@@ -1,6 +1,6 @@
-import argparse
 import json
 import Settings
+import Reporter
 import Util
 import Processing
 import FileMerger
@@ -82,6 +82,15 @@ def applySavedSettings(args, parser):
     log.info("Loaded saved settings from settings.json")
 
 
+#options worth recording at the top of a run; the bookkeeping flags are left out
+_SUMMARY_KEYS = ("input", "output", "move", "dryRun", "fetch", "clean", "create", "convert",
+                 "batch", "workers", "recurseFetch", "recurseCombine", "recursePreserve")
+
+
+def settingsSummary(s):
+    return {key: getattr(s, key) for key in _SUMMARY_KEYS if hasattr(s, key)}
+
+
 def main(args):
     #Yes, I know this approach isn't super elegant. Feel free to recommend an alternative that isn't more of a pain in the ass like a config file.
     global settings
@@ -92,6 +101,8 @@ def main(args):
     FileMerger.loadSettings()
     BookStatus.loadSettings()
 
+    Reporter.runStarted(Settings.modeName(settings), -1, settingsSummary(settings))
+
     if not settings.dryRun:
         log.debug("Creating output directory if not exists: " + settings.output)
         Path(settings.output).mkdir(parents = True, exist_ok = True)
@@ -101,14 +112,11 @@ def main(args):
 def processBooks():
     global settings
 
-    #recursive modes are enforced as mutually exclusive by argparse
+    #recursive modes are enforced as mutually exclusive by argparse, and validated in Settings
     if settings.recurseFetch:
         Processing.recursivelyFetchBatch()
 
     elif settings.recurseCombine:
-        if not settings.move:
-            log.critical("--recurseCombine currently requires --move: copy mode would strand original files in the temp folder. Exiting...")
-            sys.exit(1)
         Processing.recursivelyCombineBatch()
 
     elif settings.recursePreserve:
@@ -116,44 +124,24 @@ def processBooks():
 
     else:
         Processing.singleLevelBatch()
-    
+
     # Final summary (in case any were missed or for overall view)
-    BookStatus.printSummary()
+    BookStatus.reportSummary(settings.dryRun)
 
 
 if __name__ == "__main__":
     # Parse arguments first to get log level
-    parser = argparse.ArgumentParser(prog = "Ultimate Audiobooks")
-    parser.add_argument("-B", "--batch", type=int, default = 10) #batch size
-    parser.add_argument("-CL", "--clean", action = "store_true") #overwrite audio file metadata
-    parser.add_argument("-CV", "--convert", action = "store_true") #convert to .m4b
-    parser.add_argument("-CR", "--create", default = None, type=str.upper, choices = ["INFOTEXT", "OPF"]) #create metadata file where nonexistant. Where existant, skip unless --force is enabled
-    savedSettings = parser.add_mutually_exclusive_group()
-    savedSettings.add_argument("-D", "--default", action = "store_true") #Reset saved settings to default (deletes settings.json)
-    parser.add_argument("-FO", "--force", action = "store_true") #When used with --create, this overwrites existing metadata files
-    parser.add_argument("-FM", "--fetch", type=str.lower, choices = ["audible", "goodreads", "both"]) #interactively fetch metadata from the web
-    parser.add_argument("-I", "--input", required = True) #input folder
-    savedSettings.add_argument("-L", "--load", action = "store_true")  #load saved settings. Exclusive with --default
-    parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
-    parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
-    parser.add_argument("-DR", "--dryRun", action = "store_true") #list what would be done without copying, moving, converting, or tagging anything (fetch skipped)
-    parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
-    parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
-    parser.add_argument("-RN", "--rename", default = None) #rename files
-    recursiveModes = parser.add_mutually_exclusive_group()
-    recursiveModes.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
-    recursiveModes.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
-    recursiveModes.add_argument("-RP", "--recursePreserve", action = "store_true") #recursively fetch audio files, preserving chapter files. Recursives are exclusive.
-    parser.add_argument("-S", "--save", action = "store_true") #save settings for future executions
-    parser.add_argument("-W", "--workers", type=int, default = -1)  #set number of workers to process conversions
-
+    parser = Settings.buildParser()
     args = parser.parse_args()
-    
+
     # Configure logging based on args
     numeric_level = getattr(log, args.logLevel, log.INFO)
     log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
-    
+
     log.debug("Arguments parsed successfully")
+
+    #the console front end renders every run event as terminal output
+    Reporter.setReporter(Reporter.ConsoleReporter())
 
     if args.default:
         try:
@@ -166,19 +154,27 @@ if __name__ == "__main__":
         applySavedSettings(args, parser)
 
     final_message = ""
-    exit_exc = None
+    exit_code = 0
     unexpected_error = False
     try:
         main(args)
         final_message = "Processing complete."
+    except Settings.UserAborted as ua:
+        log.info(str(ua))
+        final_message = "Exited."
+    except Settings.ConfigError as ce:
+        log.critical(str(ce))
+        final_message = "Exited."
+        exit_code = 1
     except SystemExit as se:
         # Allow graceful pause on explicit exits
         final_message = "Exited."
-        exit_exc = se
+        exit_code = se.code if isinstance(se.code, int) else 0
     except Exception as e:
         log.exception("Unhandled exception during execution")
         final_message = "An unexpected error occurred."
         unexpected_error = True
+        exit_code = 1
     finally:
         # Present final message as info only on non-error paths
         if final_message and not unexpected_error:
@@ -194,7 +190,5 @@ if __name__ == "__main__":
             except Exception:
                 pass
         # Preserve exit semantics after pause
-        if exit_exc is not None:
-            raise exit_exc
-        if unexpected_error:
-            sys.exit(1)
+        if exit_code:
+            sys.exit(exit_code)
