@@ -1,6 +1,7 @@
 import json
 import Settings
 import Reporter
+import LogSetup
 import Util
 import Processing
 import FileMerger
@@ -134,9 +135,9 @@ if __name__ == "__main__":
     parser = Settings.buildParser()
     args = parser.parse_args()
 
-    # Configure logging based on args
+    # Configure logging based on args: the chosen level on the console, always DEBUG in the log file
     numeric_level = getattr(log, args.logLevel, log.INFO)
-    log.basicConfig(level=numeric_level, format = "[%(asctime)s][%(levelname)s] %(message)s", datefmt='%H:%M:%S')
+    LogSetup.setupLogging(consoleLevel=numeric_level)
 
     log.debug("Arguments parsed successfully")
 

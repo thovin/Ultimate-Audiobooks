@@ -8,3 +8,4 @@ venv/
 settings.json
 .vscode/
 Main/gui_state.json
+Main/logs/

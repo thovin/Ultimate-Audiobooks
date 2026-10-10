@@ -299,15 +299,22 @@ def combineAndFindChapters(startPath, outPath, counter, root):
     if not files or startPath == root:    #ignore files in the root folder
         pass
     elif len(files) == 1:
-        counter += 1
         originalFile = files[0]
+        #counter is 1-based coming in, so it is this book's number; total is unknown because the
+        #batch setting is a ceiling, not a count, and the walk hasn't finished
+        Reporter.bookStarted(counter, -1, startPath.name, bookId=startPath)
+        counter += 1
         newFile = outPath / f"{files[0].name}"
         files[0].rename(newFile)
         # Register original path for files moved to temp folder
         setOriginalPath(newFile, originalFile)
+        Reporter.bookFinished(Reporter.STATUS_OK, startPath.name, "already a single file")
     elif len(files) > 1:
+        Reporter.bookStarted(counter, -1, startPath.name, bookId=startPath)
         counter += 1
-        mergeBook(startPath, outPath, settings.move)
+        #failures are reported by mergeBook itself (via failBook), so only the success needs closing
+        if mergeBook(startPath, outPath, settings.move):
+            Reporter.bookFinished(Reporter.STATUS_OK, startPath.name)
 
     return counter
 

@@ -30,7 +30,7 @@ STATUS_OK = "ok"
 STATUS_SKIPPED = "skipped"
 STATUS_FAILED = "failed"
 
-#what each step is called when narrated to the user, and the glyph pretty renderers use
+#what each step is called when narrated to the user, and the glyph graphical renderers use
 STEP_LABELS = {
     STEP_MERGE:   ("Combining chapters", "🧩"),
     STEP_FETCH:   ("Looking up metadata", "🔍"),
@@ -67,16 +67,22 @@ class PhaseFinished(NamedTuple):
     name: str
 
 
+#bookId identifies which book an event belongs to, where label is only what the user reads. The two
+#cannot be the same thing: BookStarted labels by file name while cleanMetadata and createOpf label by
+#title, and file names repeat across subfolders in recurseFetch. Front ends that keep per-book state
+#(the GUI's rows) key on bookId; the console renderer ignores it.
 class BookStarted(NamedTuple):
     index: int                #1-based position in the batch
     total: int
     label: str
+    bookId: str
 
 
 class BookStep(NamedTuple):
     step: str                 #one of the STEP_* constants
     label: str                #the book this belongs to
     detail: Optional[str]
+    bookId: str
 
 
 class StepProgress(NamedTuple):
@@ -84,18 +90,21 @@ class StepProgress(NamedTuple):
     label: str
     done: float               #same unit as total, usually seconds of audio
     total: float              #-1 when the total is unknown
+    bookId: str
 
 
 class BookFinished(NamedTuple):
     status: str               #one of the STATUS_* constants
     label: str
     reason: Optional[str]
+    bookId: str
 
 
 class FetchFailed(NamedTuple):
     #why the link the user supplied was rejected, so the front end can re-prompt with the reason
     reason: str
     label: str
+    bookId: str
 
 
 class DryRunPlan(NamedTuple):
@@ -136,10 +145,23 @@ class Reporter:
 
 _reporter = None
 
+#The book whose events are currently being emitted, so call sites deep in the pipeline don't have to
+#thread an id through every signature. One per process is unambiguous: the parent's book loop is
+#serial, and each pool child converts exactly one book.
+_currentBookId = None
+
 
 def setReporter(reporter):
     global _reporter
     _reporter = reporter
+
+
+def setCurrentBook(bookId):
+    """Attribute subsequent step/progress/finish events to this book.
+
+    Called by bookStarted, and by each conversion worker once it knows which book it has."""
+    global _currentBookId
+    _currentBookId = str(bookId) if bookId else None
 
 
 def getReporter():
@@ -175,31 +197,35 @@ def runStarted(mode, totalBooks=-1, settingsSummary=None):
 
 
 def phaseStarted(name, total=-1):
+    setCurrentBook(None)  #a new phase means no book is current, so stray events aren't misattributed
     _emit(PhaseStarted(name, total))
 
 
 def phaseFinished(name):
+    setCurrentBook(None)
     _emit(PhaseFinished(name))
 
 
-def bookStarted(index, total, label):
-    _emit(BookStarted(index, total, label))
+def bookStarted(index, total, label, bookId=None):
+    #also makes this the current book, so the steps that follow attribute themselves to it
+    setCurrentBook(bookId or label)
+    _emit(BookStarted(index, total, label, _currentBookId))
 
 
-def bookStep(step, label, detail=None):
-    _emit(BookStep(step, label, detail))
+def bookStep(step, label, detail=None, bookId=None):
+    _emit(BookStep(step, label, detail, str(bookId) if bookId else _currentBookId))
 
 
-def stepProgress(step, label, done, total=-1):
-    _emit(StepProgress(step, label, done, total))
+def stepProgress(step, label, done, total=-1, bookId=None):
+    _emit(StepProgress(step, label, done, total, str(bookId) if bookId else _currentBookId))
 
 
-def bookFinished(status, label, reason=None):
-    _emit(BookFinished(status, label, reason))
+def bookFinished(status, label, reason=None, bookId=None):
+    _emit(BookFinished(status, label, reason, str(bookId) if bookId else _currentBookId))
 
 
-def fetchFailed(reason, label=""):
-    _emit(FetchFailed(reason, label))
+def fetchFailed(reason, label="", bookId=None):
+    _emit(FetchFailed(reason, label, str(bookId) if bookId else _currentBookId))
 
 
 def dryRunPlanned(plan):

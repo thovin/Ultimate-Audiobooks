@@ -8,6 +8,7 @@ from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM
 from FileMerger import combineAndFindChapters
 from BookStatus import skipBook, failBook
 import Reporter
+import LogSetup
 import multiprocessing
 import queue
 import re
@@ -32,6 +33,11 @@ def processConversion(c, settings, events=None): #This is run through ProcessPoo
     #reporter. Install one that ships events back to the parent over the shared queue.
     if events is not None:
         Reporter.setReporter(Reporter.QueueReporter(events))
+        LogSetup.setupWorkerLogging(events)  #otherwise this child's diagnostics go nowhere
+
+    #this child handles exactly one book, so naming it once attributes every event it emits - which
+    #is what lets the GUI keep several conversions on screen at once without mixing them up
+    Reporter.setCurrentBook(Path(c.file))
 
     file = c.file
     type = c.type
@@ -56,14 +62,20 @@ def processConversion(c, settings, events=None): #This is run through ProcessPoo
 
 def _drainEvents(events):
     #Replay worker events into this process's reporter, so conversions narrate themselves in
-    #whichever front end is running.
+    #whichever front end is running. The same queue carries the workers' log records (see
+    #LogSetup.setupWorkerLogging), which belong to logging rather than to the reporter.
     while True:
         try:
-            Reporter.replay(events.get_nowait())
+            item = events.get_nowait()
         except queue.Empty:
             return
         except Exception:
             return  #manager queue torn down
+
+        if isinstance(item, logging.LogRecord):
+            logging.getLogger(item.name).handle(item)
+        else:
+            Reporter.replay(item)
 
 
 def processConversions():
@@ -95,6 +107,9 @@ def processConversions():
 
                 for future in done:
                     conversion = futures[future]
+                    #name the book before reporting: this loop runs in the parent, where the current
+                    #book is still whichever one the serial loop finished with
+                    Reporter.setCurrentBook(Path(conversion.file))
                     try:
                         future.result()
                         Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name)
@@ -149,7 +164,8 @@ def dryRunCombine(infolder):
 
 
 def processFile(file, index=0, total=0):
-    Reporter.bookStarted(index, total, file.name)
+    #the path is the book's identity for the rest of the run; file.name is only what gets displayed
+    Reporter.bookStarted(index, total, file.name, bookId=file)
     type = Path(file).suffix.lower()
     md = Metadata()
     md.bookPath = settings.output
