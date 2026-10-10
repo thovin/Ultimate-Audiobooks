@@ -206,4 +206,6 @@ def getRelativePaths(items):
 
 def reportSummary(dryRun=False):
     """Close the run out. Each front end renders the skip/fail lists its own way."""
-    Reporter.runFinished(getRelativePaths(_skips), getRelativePaths(_fails), dryRun)
+    if settings is None:
+        loadSettings()
+    Reporter.runFinished(getRelativePaths(_skips), getRelativePaths(_fails), dryRun, settings.output)

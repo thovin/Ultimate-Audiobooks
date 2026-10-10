@@ -128,6 +128,7 @@ class RunFinished(NamedTuple):
     skips: list                #relative path strings
     fails: list                #relative path strings
     dryRun: bool
+    outputDir: str = ""       #where the finished books are
 
 
 # ---------- reporter registry ----------
@@ -232,8 +233,8 @@ def dryRunPlanned(plan):
     _emit(DryRunPlanned(plan))
 
 
-def runFinished(skips, fails, dryRun=False):
-    _emit(RunFinished(list(skips), list(fails), dryRun))
+def runFinished(skips, fails, dryRun=False, outputDir=""):
+    _emit(RunFinished(list(skips), list(fails), dryRun, str(outputDir)))
 
 
 class QueueReporter(Reporter):
@@ -385,6 +386,8 @@ class ConsoleReporter(Reporter):
 
         if not event.skips and not event.fails:
             log.info("No books were skipped or failed.")
+            if event.outputDir:
+                log.info(f"Books are in: {event.outputDir}")
             return
 
         log.info("=" * 60)
@@ -401,6 +404,8 @@ class ConsoleReporter(Reporter):
             for item in event.fails:
                 log.info(f"  - {item}")
 
+        if event.outputDir:
+            log.info(f"\nBooks are in: {event.outputDir}")
         log.info("=" * 60)
 
     _HANDLERS = {

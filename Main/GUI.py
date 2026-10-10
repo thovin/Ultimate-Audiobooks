@@ -557,17 +557,19 @@ class ActivityView(ctk.CTkScrollableFrame):
                 detail or f"will be {pastVerb}")
 
     def runFinished(self, event):
+        where = [(f"📁  Books are in: {event.outputDir}", "muted")] if event.outputDir else []
         if event.dryRun:
             self._card("🧪  Dry run finished", [], titleColor="warning", accent="warning")
             return
 
         if not event.skips and not event.fails:
-            self._card("✅  Finished", [("All books processed cleanly.", "muted")],
+            self._card("✅  Finished", [("All books processed cleanly.", "muted")] + where,
                        titleColor="success", accent="success")
             return
 
         lines = [(f"⏭️  {item}", "warning") for item in event.skips]
         lines += [(f"❌  {item}", "error") for item in event.fails]
+        lines += where
         accent = "error" if event.fails else "warning"
         self._card(f"🏁  Finished — {len(event.skips)} skipped, {len(event.fails)} failed", lines,
                    titleColor=accent, accent=accent)
