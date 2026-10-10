@@ -104,6 +104,8 @@ def dryRunCombine(infolder):
     #subfolder that holds audio files is treated as one book (as combineAndFindChapters does).
     books = []
     for folder in sorted(p for p in infolder.rglob('*') if p.is_dir()):
+        if len(books) >= settings.batch:
+            break
         files = getAudioFiles(folder)
         if files:
             books.append((folder.name, f"({len(files)} chapter{'s' if len(files) != 1 else ''})"))
