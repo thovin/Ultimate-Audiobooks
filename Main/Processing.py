@@ -4,7 +4,8 @@ from pathlib import Path
 import mutagen
 import mutagen.mp3
 from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
-                  getAudioFiles, getUniquePath, calculateWorkerCount, createOpf)
+                  getAudioFiles, getUniquePath, calculateWorkerCount, createOpf,
+                  canReadTags, canWriteTags)
 from FileMerger import combineAndFindChapters, pendingMerges, runMergeJob, failMerge, finishMerge
 from BookStatus import skipBook, failBook
 import Reporter
@@ -232,6 +233,15 @@ def processFile(file, index=0, total=0):
 
     #read once here: the conversion worker needs it for progress and cannot reopen a moved file
     duration = float(getattr(track.info, 'length', -1) or -1)
+
+    #say so up front when this file type rules out something the user asked for, instead of trying
+    #it and reporting an error. Only the requests that will really be affected are mentioned.
+    if settings.fetch:
+        if not canReadTags(track):
+            Reporter.bookNote(f"{type} files have no readable tags; searching by file name instead", file.name)
+        #a converted book is tagged after it becomes an M4B, so only an unconverted file is affected
+        if settings.clean and not settings.convert and not canWriteTags(track):
+            Reporter.bookNote(f"Tags can't be written to {type} files; leaving them untagged", file.name)
 
     if settings.fetch:
         #existing OPF is ignored in single level batch

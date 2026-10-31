@@ -1,7 +1,7 @@
 from Settings import getSettings
 from pathlib import Path
 import mutagen
-from mutagen import easymp4, mp3, mp4, flac
+from mutagen import easymp4, mp3, mp4, flac, oggopus, oggvorbis, asf
 import webbrowser
 import time
 import requests
@@ -55,8 +55,40 @@ class Conversion:
         self.duration = duration  #seconds of audio, so the worker can report conversion progress
 
 
+#FLAC, Ogg Vorbis and Opus all keep Vorbis comments, so they share one set of tag branches below
+VORBIS_TYPES = (flac.FLAC, oggvorbis.OggVorbis, oggopus.OggOpus)
+
+#What the script can do with a file's tags, decided by what mutagen opened it as. WAV has no tags to
+#speak of, and WMA (ASF) is readable but not worth writing. Callers check these before reading or
+#writing, and tell the user why when they skip, rather than attempting it and logging an error.
+def canReadTags(track):
+    return isinstance(track, (mp3.EasyMP3, easymp4.EasyMP4, asf.ASF) + VORBIS_TYPES)
+
+
+def canWriteTags(track):
+    return isinstance(track, (mp3.EasyMP3, easymp4.EasyMP4) + VORBIS_TYPES)
+
+
+def _asfFirst(track, *keys):
+    #ASF keeps its own key names (Title, Author, ...) and wraps values in attribute objects
+    for key in keys:
+        values = track.get(key)
+        if values:
+            text = str(values[0]).strip()
+            if text:
+                return text
+    return ""
+
+
 def getTitle(track):
     log.debug("Extracting title from track")
+
+    if isinstance(track, asf.ASF):
+        return _asfFirst(track, 'Title', 'WM/AlbumTitle')
+
+    if not canReadTags(track):
+        log.debug("This file type carries no readable tags. Returning empty string")
+        return ""
 
     if isinstance(track, mp3.EasyMP3) or isinstance(track, easymp4.EasyMP4):
         if 'title' in track and track['title'] != "":
@@ -66,7 +98,8 @@ def getTitle(track):
         else:
             log.debug("No title found. Returning empty string")
             return ""
-    elif isinstance(track, flac.FLAC):
+    else:
+        #Vorbis comments (FLAC, Ogg Vorbis, Opus)
         if 'title' in track and track['title']:
             return track['title'][0]
         elif 'album' in track and track['album']:
@@ -75,13 +108,16 @@ def getTitle(track):
             log.debug("No title found. Returning empty string")
             return ""
 
-    else:
-        log.error("Track is not detected as MP3, MP4, M4A/B, or FLAC. Unable to get title")
-        return ""
-
 
 def getAuthor(track):
     log.debug("Extracting author from track")
+
+    if isinstance(track, asf.ASF):
+        return _asfFirst(track, 'Author', 'WM/AlbumArtist', 'WM/Composer')
+
+    if not canReadTags(track):
+        log.debug("This file type carries no readable tags. Returning empty string")
+        return ""
 
     if isinstance(track, mp3.EasyMP3) or isinstance(track, easymp4.EasyMP4):
         if 'artist' in track and track['artist'] != '':
@@ -95,7 +131,8 @@ def getAuthor(track):
         else:
             log.debug("No author found. Returning empty string")
             return ""
-    elif isinstance(track, flac.FLAC):
+    else:
+        #Vorbis comments (FLAC, Ogg Vorbis, Opus)
         if 'artist' in track and track['artist']:
             return track['artist'][0]
         elif 'composer' in track and track['composer']:
@@ -105,10 +142,6 @@ def getAuthor(track):
         else:
             log.debug("No author found. Returning empty string")
             return ""
-
-    else:
-        log.error("Track is not detected as MP3, MP4, M4A/B, or FLAC. Unable to get author")
-        return ""
     
     
 
@@ -609,7 +642,10 @@ def fetchMetadata(file, track) -> Metadata:
 
 
 
-AUDIO_EXTENSIONS = {'.m4a', '.m4b', '.mp3', '.mp4', '.flac'}  #TODO consider .wma, .wav support
+#Formats that are always re-encoded to AAC. MP3 is handled on its own branch in convertToM4B and the
+#MP4 family is probed first, since an MP4 container may already hold AAC/ALAC and need no encoding.
+ALWAYS_TRANSCODE_TYPES = {'.flac', '.opus', '.ogg', '.oga', '.wav', '.wma'}
+AUDIO_EXTENSIONS = {'.m4a', '.m4b', '.mp3', '.mp4'} | ALWAYS_TRANSCODE_TYPES
 
 def getAudioFiles(folderPath, batch = -1, recurse = False):
     globber = folderPath.rglob if recurse else folderPath.glob
@@ -778,20 +814,20 @@ def convertToM4B(file, type, md, settings, duration=-1): #This is run parallel t
         file.unlink()
         return tempPath.rename(newPath)
 
-    elif type == '.flac':
-        log.debug("Converting FLAC to M4B")
-        cmd_flac = ['ffmpeg',
-                    '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
-                    '-y',        #overwrite leftover temp output from a previous crashed run
-                    '-i', str(file),
-                    '-c:a', 'aac',  #transcode to AAC (FLAC can't be stream-copied into MP4 container)
-                    '-q:a', '3',  #VBR quality ~128-160kbps
-                    '-vn',  #disable video
-                    '-hide_banner',  #suppress version/build info header
-                    '-loglevel', 'error',
-                    *FFMPEG_PROGRESS_ARGS,
-                    str(tempPath)]
-        if not runFfmpeg(cmd_flac, Reporter.STEP_CONVERT, label, duration):
+    elif type in ALWAYS_TRANSCODE_TYPES:
+        log.debug(f"Converting {type} to M4B")
+        cmd_other = ['ffmpeg',
+                     '-nostdin',  #never prompt on stdin (a prompt would deadlock ProcessPoolExecutor workers)
+                     '-y',        #overwrite leftover temp output from a previous crashed run
+                     '-i', str(file),
+                     '-c:a', 'aac',  #transcode to AAC (none of these codecs can be stream-copied into an MP4 container)
+                     '-q:a', '3',  #VBR quality ~128-160kbps
+                     '-vn',  #disable video
+                     '-hide_banner',  #suppress version/build info header
+                     '-loglevel', 'error',
+                     *FFMPEG_PROGRESS_ARGS,
+                     str(tempPath)]
+        if not runFfmpeg(cmd_other, Reporter.STEP_CONVERT, label, duration):
             return conversionFailed()
 
         file.unlink()
@@ -803,6 +839,10 @@ def convertToM4B(file, type, md, settings, duration=-1): #This is run parallel t
 
 
 def cleanMetadata(track, md):
+    if not canWriteTags(track):
+        #callers announce this to the user (see tagNotes); nothing to attempt, so nothing to report here
+        log.debug("File type has no writable tags. Skipping tag step")
+        return
     Reporter.bookStep(Reporter.STEP_TAG, md.title or Path(track.filename).name)
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
@@ -887,8 +927,8 @@ def cleanMetadata(track, md):
         if md.volumeNumber:
             track['series_index'] = md.volumeNumber
 
-    elif isinstance(track, flac.FLAC):
-        log.debug("Cleaning FLAC metadata")
+    elif isinstance(track, VORBIS_TYPES):
+        log.debug("Cleaning Vorbis comment metadata")
         if track.tags:
             track.tags.clear()
         else:
@@ -927,10 +967,6 @@ def cleanMetadata(track, md):
             track['asin'] = [md.asin]
         if md.volumeNumber:
             track['series_index'] = [str(md.volumeNumber)]
-
-    else:
-        log.error("Audio file not detected as MP3, MP4, M4A/B, or FLAC. Unable to clean metadata.")
-        return
 
     log.debug("Metadata cleaned")
     track.save()

@@ -224,8 +224,12 @@ class BookRow(ctk.CTkFrame):
         #sitting at zero reads as a stall
         self.progressBar = None
 
+        #created on the first BookNote; most books never get one
+        self.noteLabel = None
+
         #the glyph and count columns are fixed, so the text columns get whatever is left
-        wrapToWidth(self, (self.titleLabel, self.detailLabel), 120)
+        self.wrapLabels = [self.titleLabel, self.detailLabel]
+        wrapToWidth(self, self.wrapLabels, 120)
 
     @staticmethod
     def _countText(index, total):
@@ -278,6 +282,17 @@ class BookRow(ctk.CTkFrame):
     def setWarning(self, text):
         self.glyphLabel.configure(text="⚠️")
         self._setDetail(text, "warning")
+
+    def addNote(self, text):
+        #a standing remark about this book that is not a problem, so it sits apart from the detail
+        #line, which changes with every step
+        if self.noteLabel is None:
+            self.noteLabel = ctk.CTkLabel(self, text=text, anchor="w", justify="left",
+                                          font=ctk.CTkFont(size=12), text_color=ROW_COLORS["muted"])
+            self.noteLabel.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 12), pady=(0, 8))
+            self.wrapLabels.append(self.noteLabel)
+        else:
+            self.noteLabel.configure(text=self.noteLabel.cget("text") + "\n" + text)
 
     def setWaiting(self):
         #blocked on the user: outlined and amber so it stands out from rows the app is working on
@@ -516,6 +531,9 @@ class ActivityView(ctk.CTkScrollableFrame):
         if not row.finished:
             self.finishedCount += 1
         row.finish(event.status, event.reason)
+
+    def bookNote(self, event):
+        self.row(event.bookId, event.label).addNote(event.text)
 
     def fetchFailed(self, event):
         #the fetch panel shows this too; the row keeps it visible once the panel is gone
@@ -1242,6 +1260,9 @@ class App(ctk.CTk):
         self._updateProgress()
         self._updateStatus()
 
+    def _onBookNote(self, event):
+        self.activity.bookNote(event)
+
     def _onFetchFailed(self, event):
         self.activity.fetchFailed(event)
 
@@ -1450,6 +1471,7 @@ App._EVENT_RENDERERS = {
     Reporter.BookStep:      "_onBookStep",
     Reporter.StepProgress:  "_onStepProgress",
     Reporter.BookFinished:  "_onBookFinished",
+    Reporter.BookNote:      "_onBookNote",
     Reporter.FetchFailed:   "_onFetchFailed",
     Reporter.DryRunPlanned: "_onDryRunPlanned",
     Reporter.RunFinished:   "_onRunFinished",

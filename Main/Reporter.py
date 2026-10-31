@@ -100,6 +100,14 @@ class BookFinished(NamedTuple):
     bookId: str
 
 
+class BookNote(NamedTuple):
+    #Something worth knowing about this book that is not a problem, e.g. a file type that cannot
+    #carry tags. Distinct from a skip/fail: the book carries on.
+    text: str
+    label: str
+    bookId: str
+
+
 class FetchFailed(NamedTuple):
     #why the link the user supplied was rejected, so the front end can re-prompt with the reason
     reason: str
@@ -223,6 +231,10 @@ def stepProgress(step, label, done, total=-1, bookId=None):
 
 def bookFinished(status, label, reason=None, bookId=None):
     _emit(BookFinished(status, label, reason, str(bookId) if bookId else _currentBookId))
+
+
+def bookNote(text, label="", bookId=None):
+    _emit(BookNote(text, label, str(bookId) if bookId else _currentBookId))
 
 
 def fetchFailed(reason, label="", bookId=None):
@@ -370,6 +382,10 @@ class ConsoleReporter(Reporter):
         elif event.status == STATUS_SKIPPED:
             log.warning(f"  Skipped: {event.label}{reason}")
 
+    def _onBookNote(self, event):
+        self._clearProgress()
+        log.info(f"  Note{self._qualify(event.label)}: {event.text}")
+
     def _onFetchFailed(self, event):
         self._clearProgress()
         log.error(event.reason)
@@ -416,6 +432,7 @@ class ConsoleReporter(Reporter):
         BookStep:      _onBookStep,
         StepProgress:  _onStepProgress,
         BookFinished:  _onBookFinished,
+        BookNote:      _onBookNote,
         FetchFailed:   _onFetchFailed,
         DryRunPlanned: _onDryRunPlanned,
         RunFinished:   _onRunFinished,

@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 import os
 import shutil
-from Util import sanitizeFile, getAudioFiles, getUniquePath, runFfmpeg, FFMPEG_PROGRESS_ARGS
+from Util import sanitizeFile, getAudioFiles, getUniquePath, runFfmpeg, FFMPEG_PROGRESS_ARGS, ALWAYS_TRANSCODE_TYPES
 from BookStatus import skipBook, failBook, setOriginalPath
 import Reporter
 
@@ -167,24 +167,24 @@ def finishMerge(job):
 
 def mergeBook(folderPath, outPath = False, move = False):
     log.debug("Begin merging chapters in " + folderPath.name)
-    files = [f for f in folderPath.glob('*') if f.suffix.lower() in ('.mp3', '.mp4')]
-
-    if len(files) < 1:
-        files = [f for f in folderPath.glob('*') if f.suffix.lower() in ('.m4a', '.m4b')]
-
-    if len(files) < 1:
-        files = [f for f in folderPath.glob('*') if f.suffix.lower() == '.flac']
+    #the first group with any files wins, so a folder is only ever merged as one kind of audio
+    files = []
+    for suffixes in (('.mp3', '.mp4'), ('.m4a', '.m4b'), ('.flac',), ('.opus',), ('.ogg', '.oga'), ('.wav',), ('.wma',)):
+        files = [f for f in folderPath.glob('*') if f.suffix.lower() in suffixes]
+        if files:
+            break
 
     if len(files) < 1:
         log.warning("No audio files found in " + folderPath.name + ". Nothing to merge.")
         return None
 
-    isFlac = files[0].suffix.lower() == '.flac'
-    # FLAC chapters are merged directly to M4B/AAC: stream-copy via concat doesn't update
-    # FLAC's internal sample numbers, causing non-monotonic DTS. Transcoding in one pass
-    # avoids a broken intermediate file and a redundant decode/encode cycle.
-    outSuffix = '.m4b' if isFlac else files[0].suffix
-    codec_args = ['-c:a', 'aac', '-q:a', '3'] if isFlac else ['-codec', 'copy']
+    needsTranscode = files[0].suffix.lower() in ALWAYS_TRANSCODE_TYPES
+    # Chapters in these formats are merged directly to M4B/AAC: stream-copy via concat doesn't
+    # update FLAC's internal sample numbers, causing non-monotonic DTS, and none of them can sit in
+    # an MP4 container as-is anyway. Transcoding in one pass avoids a broken intermediate file and a
+    # redundant decode/encode cycle.
+    outSuffix = '.m4b' if needsTranscode else files[0].suffix
+    codec_args = ['-c:a', 'aac', '-q:a', '3'] if needsTranscode else ['-codec', 'copy']
 
     newName = folderPath.name + " - " + files[0].stem + outSuffix
     newFilepath = getUniquePath(newName, outPath if outPath else folderPath)
@@ -232,7 +232,7 @@ def mergeBook(folderPath, outPath = False, move = False):
     job = MergeJob(folderPath, cmd, totalSeconds, newFilepath, tempConcatFilePath, tempChapFilePath,
                    outPath, move, len(files))
 
-    if isFlac:
+    if needsTranscode:
         #a full transcode: defer so every such book can encode at once
         pendingMerges.append(job)
         return None

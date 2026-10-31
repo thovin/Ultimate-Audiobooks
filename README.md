@@ -20,7 +20,9 @@ If **fetch** is passed, books are organized into `<output>/<author>/<title>/`. O
 - Problem books are tracked and reported; in move mode they are set aside in `Ultimate Audiobook skips`/`Ultimate Audiobook fails` folders next to the input folder
 - Save, reload, and reset settings for repeated use
 
-**Supported input formats:** `.mp3`, `.mp4`, `.m4a`, `.m4b`, `.flac`
+**Supported input formats:** `.mp3`, `.mp4`, `.m4a`, `.m4b`, `.flac`, `.opus`, `.ogg`/`.oga`, `.wav`, `.wma`
+
+Tag support varies by format. `.wav` files carry no readable tags, so `--fetch` searches by file name. `.wma` tags can be read but not written. Where a requested step can't apply to a file, a note is shown for that book. With `--convert` the finished `.m4b` is tagged normally whatever the source was.
 
 ---
 
@@ -60,7 +62,7 @@ If **fetch** is passed, books are organized into `<output>/<author>/<title>/`. O
 
 ### File Conversion
 - `-CV, --convert`
-  Convert all files to `.m4b` (requires ffmpeg). MP3 and FLAC are always transcoded to AAC. MP4/M4A/M4B files have their actual audio codec inspected: files already encoded as AAC or ALAC are passed through untouched (no quality loss); anything else (e.g. a non-standard codec inside an `.mp4`/`.m4b` container) is transcoded to AAC. This guarantees the output plays on Apple devices, but it means enabling `--convert` on a library that already contains `.m4b`/`.mp4`/`.m4a` files with a non-AAC/ALAC codec will re-encode those files, not just rename them. Conversions run in parallel.
+  Convert all files to `.m4b` (requires ffmpeg). MP3, FLAC, Opus, Ogg, WAV and WMA are always transcoded to AAC. MP4/M4A/M4B files have their actual audio codec inspected: files already encoded as AAC or ALAC are passed through untouched (no quality loss); anything else (e.g. a non-standard codec inside an `.mp4`/`.m4b` container) is transcoded to AAC. This guarantees the output plays on Apple devices, but it means enabling `--convert` on a library that already contains `.m4b`/`.mp4`/`.m4a` files with a non-AAC/ALAC codec will re-encode those files, not just rename them. Conversions run in parallel.
 - `-W, --workers <int>`
   Number of parallel conversion workers. Defaults to an automatic value based on CPU cores and available memory.
 
