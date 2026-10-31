@@ -110,16 +110,17 @@ class Settings:
             raise ConfigError("Recurse combine currently requires move mode: "
                               "copy mode would strand original files in the temp folder.")
 
-        self.checkFolders()
+        #Only FFmpeg reads from the input path, and it can choke on these before any sanitizing happens
+        if self.convert or self.recurseCombine:
+            self.checkFolders()
 
-    def checkFolders(self): #TODO this is really only a problem when using ffmpeg, I think. Cut this check and/or only check when going to use it and only check in those functions?
+    def checkFolders(self):
         specials = re.compile(r'[<,>"|\'?’*\x00-\x1F]') #since this is a dir path, no colons allowed
 
-        for label, path in (("input", self.input), ("output", self.output)):
-            for folder in str(path).split(os.sep):
-                if specials.search(folder):
-                    raise ConfigError(f"Special character in {label} directory: {folder}\n"
-                                      "Special characters can cause unexpected behavior and are not allowed.")
+        for folder in str(self.input).split(os.sep):
+            if specials.search(folder):
+                raise ConfigError(f"Special character in input directory: {folder}\n"
+                                  "Special characters can cause unexpected behavior and are not allowed.")
 
 
 def setSettings(s):
