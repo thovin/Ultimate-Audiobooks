@@ -10,7 +10,7 @@ import logging
 import pyperclip
 import subprocess
 import shutil
-import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape
 import os
 import psutil
 import platform
@@ -935,65 +935,67 @@ def cleanMetadata(track, md):
     log.debug("Metadata cleaned")
     track.save()
 
-#TODO Either the template or some part of writing into the opf results in some bad fields
+def buildOpf(md):
+    #Audiobookshelf's OPF reader (server/utils/parsers/parseOpfMetadata.js) is the compatibility target, and it is
+    #picky: dc:* elements for title/subtitle/creator/publisher/date/identifier/description/subject, role and scheme
+    #read through the first xmlns: prefix it finds (defaulting to opf), narrators as dc:creator opf:role="nrt", and
+    #series only as calibre:series / calibre:series_index metas. Anything else is silently ignored, so the XML is
+    #assembled by hand: ElementTree reorders and renames namespace prefixes, which breaks that prefix detection.
+    def clean(value):
+        return "" if value is None else str(value).strip()
+
+    def element(tag, value, attrs=""):
+        value = clean(value)
+        return f"    <{tag}{attrs}>{escape(value)}</{tag}>" if value else None
+
+    def meta(name, value):
+        value = clean(value)
+        return f'    <meta name="{name}" content="{escape(value, {chr(34): "&quot;"})}"/>' if value else None
+
+    authors = [clean(a) for a in md.authors] if md.authors else [clean(md.author)]
+    narrators = [clean(n) for n in md.narrators] if md.narrators else [clean(md.narrator)]
+    #the package must name one of its identifiers, so prefer the ASIN (what Audiobookshelf matches on) over the ISBN
+    idAttr = ' id="BookId"'
+    asinAttr, isbnAttr = (idAttr, "") if clean(md.asin) else ("", idAttr)
+
+    lines = [
+        element("dc:title", md.title),
+        element("dc:subtitle", md.subtitle),
+        *[element("dc:creator", a, ' opf:role="aut"') for a in authors],
+        *[element("dc:creator", n, ' opf:role="nrt"') for n in narrators],
+        element("dc:publisher", md.publisher),
+        element("dc:date", md.publishYear),
+        element("dc:description", md.summary),
+        *[element("dc:subject", g) for g in (md.genres or [])],
+        element("dc:identifier", md.asin, f'{asinAttr} opf:scheme="ASIN"'),
+        element("dc:identifier", md.isbn, f'{isbnAttr} opf:scheme="ISBN"'),
+        meta("calibre:series", md.series),
+        meta("calibre:series_index", md.volumeNumber) if clean(md.series) else None,
+    ]
+    body = "\n".join(line for line in lines if line)
+    uniqueId = ' unique-identifier="BookId"' if clean(md.asin) or clean(md.isbn) else ""
+
+    #xmlns:opf is declared first on purpose: the reader takes the first xmlns: prefix it finds as the one for role/scheme
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<package xmlns="http://www.idpf.org/2007/opf" xmlns:opf="http://www.idpf.org/2007/opf" '
+        f'xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"{uniqueId}>\n'
+        '  <metadata>\n'
+        f'{body}\n'
+        '  </metadata>\n'
+        '</package>\n'
+    )
+
+
 def createOpf(md):
+    opfPath = Path(md.bookPath) / "metadata.opf"
+    if opfPath.exists() and not settings.force:
+        log.debug(f"{opfPath} already exists; skipping (use --force to overwrite)")
+        return
+
     Reporter.bookStep(Reporter.STEP_SIDECAR, md.title)
-    dcLink = "{http://purl.org/dc/elements/1.1/}"
-    package = ET.Element("package", version="3.0", xmlns="http://www.idpf.org/2007/opf", unique_identifier="BookId")
-    metadata = ET.SubElement(package, "metadata", nsmap={'dc' : dcLink})
-
-    # Authors: write multiple creators when available; keep first as primary
-    if hasattr(md, 'authors') and md.authors:
-        for name in md.authors:
-            a_el = ET.SubElement(metadata, f"{dcLink}creator", attrib={ET.QName(dcLink, "role"): "aut"})
-            a_el.text = name
-    else:
-        author = ET.SubElement(metadata, f"{dcLink}creator", attrib={ET.QName(dcLink, "role"): "aut"})
-        author.text = md.author
-
-    title = ET.SubElement(metadata, f"{dcLink}title")
-    title.text = md.title
-
-    summary = ET.SubElement(metadata, f"{dcLink}description")
-    summary.text = md.summary
-
-    # Genres as dc:subject entries (multiple allowed)
-    if hasattr(md, 'genres') and md.genres:
-        for g in md.genres:
-            subject = ET.SubElement(metadata, f"{dcLink}subject")
-            subject.text = g
-
-    # subtitle = ET.SubElement(metadata, f"{dcLink}subtitle")
-    # subtitle.text = md.subtitle
-
-    narrator = ET.SubElement(metadata, f"{dcLink}contributor", attrib={ET.QName(dcLink, "role"): "nrt"})
-    narrator.text = md.narrator
-
-    publisher = ET.SubElement(metadata, f"{dcLink}publisher")
-    publisher.text = md.publisher
-
-    publishYear = ET.SubElement(metadata, f"{dcLink}date")
-    publishYear.text = md.publishYear
-
-    isbn = ET.SubElement(metadata, f"{dcLink}identifier", attrib={ET.QName(dcLink, "scheme"): "ISBN"})
-    isbn.text = md.isbn
-
-    asin = ET.SubElement(metadata, f"{dcLink}identifier", attrib={ET.QName(dcLink, "scheme"): "ASIN"})
-    asin.text = md.asin
-
-    series = ET.SubElement(metadata, f"{dcLink}meta", attrib={"property" : "belongs-to-collection", "id" : "series-id"})
-    series.text = md.series
-
-    volumeNumber = ET.SubElement(metadata, f"{dcLink}meta", attrib={"refines" : "#series-id", "property" : "group-position"})
-    volumeNumber.text = md.volumeNumber
-
-
-    tree = ET.ElementTree(package)
-    with open (md.bookPath + "/metadata.opf", "wb") as outFile:
-        log.debug("Write OPF file")
-        tree.write(outFile, xml_declaration=True, encoding="utf-8", method="xml")
-            
-
+    log.debug("Write OPF file")
+    opfPath.write_text(buildOpf(md), encoding="utf-8")
 
 
 def getUniquePath(fileName, outpath):
