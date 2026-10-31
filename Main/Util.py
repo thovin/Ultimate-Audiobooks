@@ -581,7 +581,7 @@ def fetchMetadata(file, track) -> Metadata:
                     reason = reject("Audible link did not yield both title and author. Please provide a valid book page link, or skip this book.")
                     continue
                 break
-            except (json.JSONDecodeError, KeyError): #TODO this randomly started letting me copy the link for he who fights with monsters series. Did they change their API to send valid JSON for series? If so, maybe check the URL for /series instead of /p or whatever they use?
+            except (json.JSONDecodeError, KeyError):
                 reason = reject("Error reading Audible API. Perhaps this is a series/podcast or invalid link? Provide a book page link, or skip this book.")
                 continue
 
