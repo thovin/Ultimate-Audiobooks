@@ -280,9 +280,9 @@ class BookRow(ctk.CTkFrame):
         if placement and placement.missing:
             self._showMissing(placement.missing)
 
-    def _showMissing(self, missing):
+    def _showMissing(self, missing, planned=False):
         #what the rename template asked for but this book had no value for, so it is not in the name
-        text = "Not found, left out of the name: " + ", ".join("{" + m + "}" for m in missing)
+        text = ("Not found, would be left out of the name: " if planned else "Not found, left out of the name: ") + ", ".join("{" + m + "}" for m in missing)
         if self.missingLabel is None:
             self.missingLabel = ctk.CTkLabel(self, text=text, anchor="w", justify="left",
                                              font=ctk.CTkFont(size=12), text_color=ROW_COLORS["error"])
@@ -573,6 +573,8 @@ class ActivityView(ctk.CTkScrollableFrame):
         lines = [(f"📂  Output: {plan.output}", "normal")]
         lines.append((f"🗂️  Layout: {plan.layout}", "normal"))
         lines.append((f"e.g. {plan.layoutExample}", "muted"))
+        if plan.required:
+            lines.append((f"🛡️  Required: {plan.required} — books missing any are skipped", "normal"))
         lines.append((f"{'🚚' if plan.verb == 'move' else '📋'}  Mode: {plan.verb} — {plan.modeNote}", "normal"))
         lines.append((f"🔧  Each book: {' → '.join(plan.steps)}", "normal"))
         if not plan.books:
@@ -588,10 +590,12 @@ class ActivityView(ctk.CTkScrollableFrame):
         self._widgets.append(heading)
         self._place(heading, pady=(10, 4))
 
-        for number, (label, detail) in enumerate(plan.books, 1):
+        for number, book in enumerate(plan.books, 1):
             #the same widget as a live book, so there is only ever one way a book is drawn
-            self.row(f"plan:{number}:{label}", label, number, len(plan.books)).setPlanned(
-                detail or f"will be {pastVerb}")
+            row = self.row(f"plan:{number}:{book.label}", book.label, number, len(plan.books))
+            row.setPlanned(book.detail or f"will be {pastVerb}")
+            if book.missing:
+                row._showMissing(book.missing, planned=True)
 
     def runFinished(self, event):
         where = [(f"📁  Books are in: {event.outputDir}", "muted")] if event.outputDir else []
@@ -915,7 +919,15 @@ class App(ctk.CTk):
         renameHelp = ctk.CTkLabel(card, text="'/' separates folders; the last part names the file.\nPlaceholders: "
                                   + " ".join("{" + p + "}" for p in Naming.PLACEHOLDERS),
                                   font=ctk.CTkFont(size=11), text_color="gray55", anchor="w", justify="left")
-        renameHelp.grid(row=3, column=0, sticky="ew", padx=PAD, pady=(0, 12))
+        renameHelp.grid(row=3, column=0, sticky="ew", padx=PAD, pady=(0, 26))
+
+        self.requireEntry = ctk.CTkEntry(card, height=32, font=font13,
+                                         placeholder_text="Required fields, e.g. author, title (optional)")
+        self.requireEntry.grid(row=4, column=0, sticky="ew", padx=PAD, pady=(0, 6))
+        requireHelp = ctk.CTkLabel(card, text="A book missing any of these is skipped instead of being filed under "
+                                   "a name that leaves them out. Separate several with commas.",
+                                   font=ctk.CTkFont(size=11), text_color="gray55", anchor="w", justify="left")
+        requireHelp.grid(row=5, column=0, sticky="ew", padx=PAD, pady=(0, 12))
 
         #wrap the text to whatever width the card has, so it fills the space at any window or UI scale
         def wrapToCard(event):
@@ -923,6 +935,7 @@ class App(ctk.CTk):
             wrap = max((event.width - 2 * PAD) / card._get_widget_scaling() - 8, 100)
             self.renamePreview.configure(wraplength=wrap)
             renameHelp.configure(wraplength=wrap)
+            requireHelp.configure(wraplength=wrap)
         card.bind("<Configure>", wrapToCard)
 
         self._renameDefault = ""
@@ -1426,6 +1439,7 @@ class App(ctk.CTk):
             "convert": bool(self.convertSwitch.get()),
             #the untouched default is saved as "none" so it keeps following the fetch setting
             "rename": None if self._renameIsDefault() else self.renameEntry.get().strip(),
+            "require": self.requireEntry.get().strip() or None,
             "batch": self.batchEntry.get().strip(),
             "workers": -1 if workers.lower() in ("", "auto") else workers,
             #no logLevel: that is the console's verbosity, and the GUI has no console. The drawer's
@@ -1461,6 +1475,7 @@ class App(ctk.CTk):
 
         setEntry(self.inputEntry, saved.get("input"))
         setEntry(self.outputEntry, saved.get("output"))
+        setEntry(self.requireEntry, saved.get("require"))
         setEntry(self.batchEntry, saved.get("batch", 10))
         workers = saved.get("workers", -1)
         setEntry(self.workersEntry, "Auto" if workers in (-1, "-1", None) else workers)

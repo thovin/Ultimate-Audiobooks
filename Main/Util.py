@@ -836,6 +836,93 @@ def convertToM4B(file, type, md, settings, duration=-1): #This is run parallel t
         return conversionFailed()
 
 
+def registerCustomKeys(track):
+    #The non-standard tags this script writes (see cleanMetadata) have to be registered before the easy
+    #interface will read or write them. Registering is idempotent.
+    if isinstance(track, mp3.EasyMP3):
+        # RegisterTXXXKey maps an easy key name to a TXXX frame description (it does not write values).
+        for key in ('description', 'subtitle', 'isbn', 'publisher', 'series_index', 'author'):
+            track.ID3.RegisterTXXXKey(key, key)
+    elif isinstance(track, easymp4.EasyMP4):
+        #MP4 atom names use the copyright sign prefix (\xa9), not '@'
+        track.RegisterTextKey('narrator', '\xa9nrt')
+        track.RegisterTextKey('author', '\xa9aut')
+        for key in ('publisher', 'isbn', 'asin', 'series', 'series_index'):
+            track.MP4Tags.RegisterFreeformKey(key, key, 'com.UltimateAudiobooks')
+
+
+def _tagValues(track, key):
+    #non-empty text values of one easy tag; empty for a key the format doesn't have
+    try:
+        values = track.get(key)
+    except Exception:
+        return []
+    return [str(v).strip() for v in (values or []) if str(v).strip()]
+
+
+def readTags(track):
+    """Whatever the file's own tags say about the book, as a Metadata. Empty fields for what isn't there.
+
+    Deliberately strict: a wrong name in a path is worse than a missing one. Third-party audiobook tags use
+    artist/album for author, narrator, book or series inconsistently, so those are not trusted. This script's
+    own tags (cleanMetadata) are unambiguous, and so are title, composer and album artist."""
+    md = Metadata()
+    if not canReadTags(track):
+        return md
+
+    if isinstance(track, asf.ASF):
+        md.title = _asfFirst(track, 'Title')
+        md.author = _asfFirst(track, 'WM/Composer', 'WM/AlbumArtist')
+        md.authors = [md.author] if md.author else []
+        return md
+
+    registerCustomKeys(track)
+    first = lambda key: (_tagValues(track, key) or [""])[0]
+
+    md.title = first('title')
+    md.subtitle = first('subtitle')
+    md.summary = first('description')
+    md.publisher = first('publisher')
+    md.isbn = first('isbn')
+    md.asin = first('asin')
+    md.genres = _tagValues(track, 'genre')
+    year = re.search(r'\d{4}', first('date'))
+    md.publishYear = year.group(0) if year else ""
+
+    md.authors = _tagValues(track, 'author') or _tagValues(track, 'composer') or _tagValues(track, 'albumartist')
+    md.author = md.authors[0] if md.authors else ""
+
+    md.narrators = _tagValues(track, 'narrator')
+    md.volumeNumber = first('series_index')
+    md.series = first('series') or first('grouping')
+    if isinstance(track, mp3.EasyMP3) and _tagValues(track, 'author'):
+        #written by cleanMetadata: artist holds the narrators and album the series
+        md.narrators = md.narrators or _tagValues(track, 'artist')
+        md.series = md.series or first('album')
+    md.narrator = md.narrators[0] if md.narrators else ""
+    if not md.series:
+        md.volumeNumber = ""  #a volume with no series means nothing, and would pair wrongly with a fetched series
+    return md
+
+
+#fields that describe one thing and so must be replaced together
+_MERGE_GROUPS = (("author", "authors"), ("narrator", "narrators"), ("series", "seriesMulti", "volumeNumber"))
+
+
+def mergeMetadata(base, fetched):
+    """base (read from tags) overridden by fetched wherever fetched has something. Related fields move as a
+    group, so a fetched series never ends up paired with a volume number left over from the tags."""
+    grouped = {name for group in _MERGE_GROUPS for name in group}
+    for name, value in vars(fetched).items():
+        if value and name not in grouped:
+            setattr(base, name, value)
+    for group in _MERGE_GROUPS:
+        if any(getattr(fetched, name) for name in group):
+            for name in group:
+                setattr(base, name, getattr(fetched, name))
+    return base
+
+
 def cleanMetadata(track, md):
     if not canWriteTags(track):
         #callers announce this to the user (see tagNotes); nothing to attempt, so nothing to report here
@@ -845,14 +932,7 @@ def cleanMetadata(track, md):
     if isinstance(track, mp3.EasyMP3):
         log.debug("Cleaning easymp3 metadata")
 
-        # RegisterTXXXKey maps an easy key name to a TXXX frame description (it does not write values).
-        # Register the custom keys once, then assign values through the easy interface below.
-        track.ID3.RegisterTXXXKey('description', 'description')
-        track.ID3.RegisterTXXXKey('subtitle', 'subtitle')
-        track.ID3.RegisterTXXXKey('isbn', 'isbn')
-        track.ID3.RegisterTXXXKey('publisher', 'publisher')
-        track.ID3.RegisterTXXXKey('series_index', 'series_index')
-        track.ID3.RegisterTXXXKey('author', 'author')
+        registerCustomKeys(track)
 
         track.delete()
         track['title'] = md.title
@@ -885,19 +965,7 @@ def cleanMetadata(track, md):
 
     elif isinstance(track, easymp4.EasyMP4):
         log.debug("Cleaning easymp4 metadata")
-        #MP4 atom names use the copyright sign prefix (\xa9), not '@'
-        track.RegisterTextKey('narrator', '\xa9nrt')
-        track.RegisterTextKey('author', '\xa9aut')
-        # track.MP4Tags.RegisterFreeformKey('publisher', "----:com.thovin.publisher")
-        track.MP4Tags.RegisterFreeformKey('publisher', "publisher", 'com.UltimateAudiobooks')
-        # track.MP4Tags.RegisterFreeformKey('isbn', "----:com.thovin.isbn")
-        track.MP4Tags.RegisterFreeformKey('isbn', "isbn", 'com.UltimateAudiobooks')
-        # track.MP4Tags.RegisterFreeformKey('asin', "----:com.thovin.asin")
-        track.MP4Tags.RegisterFreeformKey('asin', "asin", 'com.UltimateAudiobooks')
-        # track.MP4Tags.RegisterFreeformKey('series', "----:com.thovin.series")
-        track.MP4Tags.RegisterFreeformKey('series', "series", 'com.UltimateAudiobooks')
-        # track.MP4Tags.RegisterFreeformKey('series_index', "----:com.thovin.series_index")
-        track.MP4Tags.RegisterFreeformKey('series_index', "series_index", "com.UltimateAudiobooks")
+        registerCustomKeys(track)
 
         track.delete()
         track['title'] = md.title

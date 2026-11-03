@@ -47,6 +47,9 @@ def buildParser():
                         help = "Name and place each book with a template, relative to the output folder. '/' separates folders, "
                                "the last part is the filename. Placeholders: " + " ".join("{" + p + "}" for p in Naming.PLACEHOLDERS) +
                                ". Example: \"{author}/{series}/{series} {volume:02} - {title}\"") #layout of the output
+    parser.add_argument("-RQ", "--require", default = None, metavar = "FIELDS",
+                        help = "Skip any book that has no value for one of these rename placeholders instead of leaving it "
+                               "out of the name, e.g. \"author,title\" (comma separated, not case sensitive). Values come from fetched metadata, else the file's own tags; each must appear in the rename template") #guards against books landing in the wrong folder
     recursiveModes = parser.add_mutually_exclusive_group()
     recursiveModes.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
     recursiveModes.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
@@ -119,6 +122,11 @@ class Settings:
                 Naming.validateTemplate(self.rename)
             except ValueError as e:
                 raise ConfigError(str(e)) from None
+
+        try:
+            Naming.validateRequired(self.require, Naming.effectiveTemplate(self))
+        except ValueError as e:
+            raise ConfigError(str(e)) from None
 
         #Only FFmpeg reads from the input path, and it can choke on these before any sanitizing happens
         if self.convert or self.recurseCombine:

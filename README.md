@@ -86,6 +86,8 @@ Note: Combine and Preserve processing modes can be used on libraries of mixed wh
   Set logging verbosity. Default = INFO.
 - `-RN, --rename <template>`
   Choose where each book goes and what it is called. See [Naming templates](#naming-templates).
+- `-RQ, --require <fields>`
+  Skip any book that has no value for one of these placeholders, e.g. `--require author,title` (comma separated, not case sensitive). Without it, a missing value is just left out of the name. Each field must appear in the rename template. See [Naming templates](#naming-templates).
 
 ### Saved Settings
 Settings are stored in `settings.json` next to `Main.py`, so they work no matter which directory you launch from.
@@ -164,8 +166,9 @@ python Main.py -I books --fetch audible --rename "{author}/{series}/{series} {vo
 - `{authors}` and `{narrators}` list everyone, joined with ` & `; `{author}`, `{narrator}` and `{genre}` are the first.
 - `{filename}` is the original file name without its extension (for a combined book, the chapter folder's name).
 - `{volume:02}` pads numbers (`1` becomes `01`, `1.5` becomes `01.5`).
-- Without `--fetch` there is no metadata: `{title}` falls back to the file name and the rest are empty.
+- Values come from the file's own tags first, and anything `--fetch` finds replaces them. Tags are read strictly, because guessing wrong puts a book in the wrong folder: this tool's own tags (written by `--clean`), title, composer and album artist are used, but the generic `artist` and `album` tags are not, since taggers use them for author, narrator, book or series inconsistently. So an untagged file has no author or series, and `{title}` falls back to the file name.
 - Empty values are dropped: a level whose placeholders are all empty disappears, and leftovers like `" - "` or `()` are tidied, so `{series}/{title}` gives plain `{title}` for a standalone book.
 - Characters that are unsafe in file names (including commas) are removed from the data, and `/` inside a title can never create a folder.
+- When a finished book had values left out, the run report shows the final path and which placeholders were not found. To stop that from happening at all, use `--require`: a book missing a required field is skipped (listed with the reason in the skip summary, and moved to `Ultimate Audiobook skips/` with `--move`) instead of being filed without it. Example: `--rename "{author}/{title}/{title}" --require author` never files a book without an author folder.
 - If two books end up with the same name, the later ones get ` - 1`, ` - 2`, and so on.
 - Without `--rename`, books keep today's layout: `{author}/{title}/{title}` with `--fetch`, `{filename}` without.

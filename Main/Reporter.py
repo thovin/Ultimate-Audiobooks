@@ -99,6 +99,13 @@ class Placement(NamedTuple):
     missing: tuple            #template placeholders with no value for this book, left out of the name
 
 
+class PlannedBook(NamedTuple):
+    #One line of a dry-run plan
+    label: str
+    detail: Optional[str] = None  #e.g. "(2 chapters) → Lib/Book.mp3"
+    missing: tuple = ()           #template placeholders this book has no value for, so would be left out of its name
+
+
 class BookFinished(NamedTuple):
     status: str               #one of the STATUS_* constants
     label: str
@@ -131,9 +138,10 @@ class DryRunPlan(NamedTuple):
     layout: str        #the effective naming template, e.g. "{author}/{title}/{title}"
     layoutExample: str #that template resolved against a sample book
     steps: list        #per-book pipeline phrases, in order
-    books: list        #(label, detail-or-None) pairs
+    books: list        #PlannedBook, one per book
     combine: bool      #chapter folders being assembled rather than files processed
     emptyNote: str     #why there is nothing to do, when books is empty
+    required: str = "" #placeholders a book must have a value for (--require), e.g. "author, title"
 
 
 class DryRunPlanned(NamedTuple):
@@ -284,6 +292,7 @@ def dryRunPlanText(plan):
              f"  Output:    {plan.output}",
              f"  Layout:    {plan.layout}",
              f"             e.g. {plan.layoutExample}",
+             *([f"  Required:  {plan.required} (books missing any are skipped)"] if plan.required else []),
              f"  Mode:      {plan.verb} ({plan.modeNote})",
              f"  Each book: {' → '.join(plan.steps)}",
              ""]
@@ -294,8 +303,10 @@ def dryRunPlanText(plan):
     noun = "book" if len(plan.books) == 1 else "books"
     lines.append(f"  {len(plan.books)} {noun} to {'assemble' if plan.combine else 'process'}:")
     width = len(str(len(plan.books)))
-    for number, (label, detail) in enumerate(plan.books, 1):
-        lines.append(f"    {number:>{width}}. {label}" + (f"  {detail}" if detail else ""))
+    for number, book in enumerate(plan.books, 1):
+        lines.append(f"    {number:>{width}}. {book.label}" + (f"  {book.detail}" if book.detail else ""))
+        if book.missing:
+            lines.append(" " * (width + 7) + "Not found, would be left out of the name: " + ", ".join("{" + m + "}" for m in book.missing))
     return lines
 
 

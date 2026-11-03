@@ -107,6 +107,39 @@ def validateTemplate(template):
                 raise ValueError(f"Bad format '{spec}' for {{{field}}} in the rename template.")
 
 
+def parseRequired(text):
+    #field names from "author, title" (commas or spaces; braces tolerated), in order, without repeats
+    names = []
+    for name in re.split(r'[\s,]+', str(text or "")):
+        name = name.strip('{}').lower()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def validateRequired(text, template):
+    """Raise ValueError if --require can't do what it says. The template is the effective one."""
+    required = parseRequired(text)
+    if not required:
+        return
+    used = {field for segment in str(template).split('/') for _, field, _, _ in _parse(segment) if field}
+    for name in required:
+        if name not in PLACEHOLDERS:
+            raise ValueError(f"Unknown placeholder '{name}' in --require. "
+                             f"Available: {', '.join(p for p in PLACEHOLDERS if p != 'filename')}")
+        if name == "filename":
+            raise ValueError("{filename} can't be required: every book has one.")
+        if name not in used:
+            raise ValueError(f"{{{name}}} is required but the rename template doesn't use it: {template}")
+
+
+def missingRequired(required, md):
+    """The required placeholders this book has no value for. Unlike resolve(), {title} gets no filename
+    fallback here: a book whose title wasn't found is missing it, even though its name falls back to the file's."""
+    values = _lookup(md, "")
+    return [name for name in required if not sanitizeName(str(values[name] or "")).strip()]
+
+
 def _specFits(spec):
     #valid when it formats a number or a word; a spec that suits neither is a typo
     for sample in ("1", "Dune"):

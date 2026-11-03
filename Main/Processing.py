@@ -5,7 +5,7 @@ import mutagen
 import mutagen.mp3
 from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
                   getAudioFiles, getUniquePath, calculateWorkerCount, createOpf,
-                  canReadTags, canWriteTags, claimedPaths, ALWAYS_TRANSCODE_TYPES)
+                  canReadTags, canWriteTags, readTags, mergeMetadata, claimedPaths, ALWAYS_TRANSCODE_TYPES)
 from FileMerger import combineAndFindChapters, pendingMerges, runMergeJob, failMerge, finishMerge
 from BookStatus import skipBook, failBook, getOriginalPath
 import Naming
@@ -186,24 +186,41 @@ def _dryRunSteps(combine=False):
     return steps
 
 
-def _destinationKnown():
-    #Without fetch a destination depends only on the file's name and the template, so it can be worked
-    #out exactly. With fetch it needs metadata a dry run deliberately doesn't fetch (unless the template
-    #only uses the file name).
-    return not settings.fetch or not Naming.usesMetadata(Naming.effectiveTemplate(settings))
+def _destinationKnown(combine=False):
+    #A destination depends on the file's name, its own tags and the template, all readable without
+    #writing anything, so it can be worked out exactly. It can't be when it needs fetched metadata (a
+    #dry run deliberately doesn't fetch), or the tags of a merged file that doesn't exist yet.
+    if not Naming.usesMetadata(Naming.effectiveTemplate(settings)):
+        return True
+    return not settings.fetch and not combine
+
+
+def _tagsOf(file):
+    #the book's own tags for a dry run; a folder (combine) or unreadable file has none
+    try:
+        return readTags(mutagen.File(file, easy=True)) if Path(file).is_file() else Metadata()
+    except Exception:
+        return Metadata()
 
 
 def _plannedDestination(file, suffix, source=None):
     #"-> path under the output folder" for the dry run, from the same _destination the real run uses
-    path = _destination(file, Metadata(), suffix, source)
-    return "→ " + path.relative_to(settings.output).as_posix()
+    #returns (text, placeholders that would be left out of the name)
+    md = _tagsOf(file)
+    missing = Naming.missingRequired(Naming.parseRequired(settings.require), md)
+    if missing:
+        return "→ would be skipped: not found: " + ", ".join(missing), ()
+    path = _destination(file, md, suffix, source)
+    return "→ " + path.relative_to(settings.output).as_posix(), tuple(md.renameMissing)
 
 
 def _planBooks(files):
     #(label, detail) for each file, with the destination as the detail when it can be known
     known = _destinationKnown()
-    books = [(f.name, _plannedDestination(f, ".m4b" if settings.convert else f.suffix.lower()) if known else None)
-             for f in files]
+    books = []
+    for f in files:
+        detail, missing = _plannedDestination(f, ".m4b" if settings.convert else f.suffix.lower()) if known else (None, ())
+        books.append(Reporter.PlannedBook(f.name, detail, missing))
     claimedPaths.clear()  #the preview reserved names to show collisions; none of that should outlive it
     return books
 
@@ -212,8 +229,8 @@ def _reportDryRunPlan(books, combine=False, emptyNote="no audio files found in t
     #Describe the run rather than performing it. Every front end renders the same plan object.
     #books: list of (label, detail-or-None), detail e.g. "(2 chapters) → Lib/Book.mp3".
     example = Naming.preview(Naming.effectiveTemplate(settings), ".m4b" if settings.convert else ".mp3")
-    if not _destinationKnown():
-        example += "  (sample book; real names come from fetched metadata)"
+    if not _destinationKnown(combine):
+        example += "  (sample book; real names come from each book's metadata)"
     Reporter.dryRunPlanned(Reporter.DryRunPlan(
         output=settings.output,
         verb="move" if settings.move else "copy",
@@ -223,26 +240,29 @@ def _reportDryRunPlan(books, combine=False, emptyNote="no audio files found in t
         steps=_dryRunSteps(combine),
         books=list(books),
         combine=combine,
-        emptyNote=emptyNote))
+        emptyNote=emptyNote,
+        required=", ".join(Naming.parseRequired(settings.require))))
 
 
 def dryRunCombine(infolder):
     #Folder-level preview of recurse-combine without invoking the ffmpeg merge. Each
     #subfolder that holds audio files is treated as one book (as combineAndFindChapters does).
     books = []
-    known = _destinationKnown()
+    known = _destinationKnown(combine=True)
     for folder in sorted(p for p in infolder.rglob('*') if p.is_dir()):
         if len(books) >= settings.batch:
             break
         files = getAudioFiles(folder)
         if files:
             detail = f"({len(files)} chapter{'s' if len(files) != 1 else ''})"
+            missing = ()
             if known:
                 #several chapters merge into one file; same suffix rule as FileMerger.mergeBook
                 first = files[0].suffix.lower()
                 suffix = ".m4b" if settings.convert or (len(files) > 1 and first in ALWAYS_TRANSCODE_TYPES) else first
-                detail += " " + _plannedDestination(folder, suffix, source=folder.name)
-            books.append((folder.name, detail))
+                text, missing = _plannedDestination(folder, suffix, source=folder.name)
+                detail += " " + text
+            books.append(Reporter.PlannedBook(folder.name, detail, missing))
     claimedPaths.clear()
     _reportDryRunPlan(books, combine=True,
                       emptyNote="no subfolders with audio files found to combine")
@@ -278,7 +298,6 @@ def processFile(file, index=0, total=0):
     #the path is the book's identity for the rest of the run; file.name is only what gets displayed
     Reporter.bookStarted(index, total, file.name, bookId=file)
     type = Path(file).suffix.lower()
-    md = Metadata()
 
     try:
         track = mutagen.File(file, easy=True)
@@ -289,6 +308,9 @@ def processFile(file, index=0, total=0):
     if track == None:
         failBook(file, "Unable to process file")
         return
+
+    #what the file's own tags say; a fetch below overrides whatever it finds
+    md = readTags(track)
 
     #read once here: the conversion worker needs it for progress and cannot reopen a moved file
     duration = float(getattr(track.info, 'length', -1) or -1)
@@ -304,11 +326,19 @@ def processFile(file, index=0, total=0):
 
     if settings.fetch:
         #existing OPF is ignored in single level batch
-        md = fetchMetadata(file, track)
+        fetched = fetchMetadata(file, track)
 
-        if md is None:
+        if fetched is None:
             # Book was skipped or failed during metadata fetch
             return
+        md = mergeMetadata(md, fetched)
+
+    #--require: a book missing a required field is skipped rather than filed under a name that omits it.
+    #Checked before the destination is claimed, so nothing is created or reserved for a skipped book.
+    missing = Naming.missingRequired(Naming.parseRequired(settings.require), md)
+    if missing:
+        skipBook(file, "Not found: " + ", ".join(missing) + " (required)")
+        return
 
     #The --rename template (or the default layout) decides where the book lands, with or without
     #fetched metadata. The final name is settled here, in the parent, so books that map to the same
