@@ -5,14 +5,14 @@ import mutagen
 import mutagen.mp3
 from Util import (Metadata, Conversion, fetchMetadata, cleanMetadata, convertToM4B,
                   getAudioFiles, getUniquePath, calculateWorkerCount, createOpf,
-                  canReadTags, canWriteTags)
+                  canReadTags, canWriteTags, claimedPaths, ALWAYS_TRANSCODE_TYPES)
 from FileMerger import combineAndFindChapters, pendingMerges, runMergeJob, failMerge, finishMerge
-from BookStatus import skipBook, failBook
+from BookStatus import skipBook, failBook, getOriginalPath
+import Naming
 import Reporter
 import LogSetup
 import multiprocessing
 import queue
-import re
 import shutil
 from concurrent.futures import ProcessPoolExecutor, wait
 import math
@@ -28,6 +28,7 @@ def loadSettings():
     global settings
     settings = getSettings()
     conversions.clear()  #a fresh run must not inherit the previous run's queue (GUI reuses the process)
+    claimedPaths.clear()
 
 def processConversion(c, settings, events=None): #This is run through ProcessPoolExecutor, which limits access to globals
     #Workers start from a fresh interpreter under the forkserver start method, so they inherit no
@@ -46,7 +47,7 @@ def processConversion(c, settings, events=None): #This is run through ProcessPoo
 
     file = convertToM4B(file, type, md, settings, c.duration)
     if file is None:
-        return  #conversion failed; book already marked as failed
+        return None  #conversion failed; book already marked as failed
 
     track = mutagen.File(file, easy=True)
 
@@ -54,11 +55,7 @@ def processConversion(c, settings, events=None): #This is run through ProcessPoo
         #the converted file is a new file in both move and copy modes, so always safe to clean
         cleanMetadata(track, md)
 
-    if settings.rename:
-        #TODO rename
-        #again, only apply to copy
-        pass
-
+    return str(file)  #where the book ended up, so the parent can report it
 
 
 def _drainEvents(events):
@@ -135,8 +132,11 @@ def processConversions():
     Reporter.phaseStarted(f"Converting {len(conversions)} file{'s' if len(conversions) != 1 else ''}",
                           len(conversions))
 
-    def onResult(conversion, _):
-        Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name)
+    def onResult(conversion, finalPath):
+        if finalPath is None:
+            return  #the worker already reported the failure; don't overwrite it with a success
+        Reporter.bookFinished(Reporter.STATUS_OK, Path(conversion.file).name,
+                              placement=_placement(finalPath, conversion.md))
 
     def onError(conversion, e):
         log.error("Error processing conversion: " + str(e))
@@ -180,19 +180,46 @@ def _dryRunSteps(combine=False):
     if settings.fetch:     steps.append(f"fetch metadata ({settings.fetch})")
     if settings.create:    steps.append(f"create {settings.create} sidecar")
     if settings.convert:   steps.append("convert .m4b")
+    if settings.rename:    steps.append("rename")
     if settings.clean:     steps.append("write tags")
     steps.append("move" if settings.move else "copy")
     return steps
 
 
+def _destinationKnown():
+    #Without fetch a destination depends only on the file's name and the template, so it can be worked
+    #out exactly. With fetch it needs metadata a dry run deliberately doesn't fetch (unless the template
+    #only uses the file name).
+    return not settings.fetch or not Naming.usesMetadata(Naming.effectiveTemplate(settings))
+
+
+def _plannedDestination(file, suffix, source=None):
+    #"-> path under the output folder" for the dry run, from the same _destination the real run uses
+    path = _destination(file, Metadata(), suffix, source)
+    return "→ " + path.relative_to(settings.output).as_posix()
+
+
+def _planBooks(files):
+    #(label, detail) for each file, with the destination as the detail when it can be known
+    known = _destinationKnown()
+    books = [(f.name, _plannedDestination(f, ".m4b" if settings.convert else f.suffix.lower()) if known else None)
+             for f in files]
+    claimedPaths.clear()  #the preview reserved names to show collisions; none of that should outlive it
+    return books
+
+
 def _reportDryRunPlan(books, combine=False, emptyNote="no audio files found in the input folder"):
     #Describe the run rather than performing it. Every front end renders the same plan object.
-    #books: list of (label, detail-or-None), detail e.g. "(2 chapters)".
+    #books: list of (label, detail-or-None), detail e.g. "(2 chapters) → Lib/Book.mp3".
+    example = Naming.preview(Naming.effectiveTemplate(settings), ".m4b" if settings.convert else ".mp3")
+    if not _destinationKnown():
+        example += "  (sample book; real names come from fetched metadata)"
     Reporter.dryRunPlanned(Reporter.DryRunPlan(
         output=settings.output,
         verb="move" if settings.move else "copy",
         modeNote="originals removed from source" if settings.move else "originals left in place",
-        perBookDest=bool(settings.fetch),
+        layout=Naming.effectiveTemplate(settings),
+        layoutExample=example,
         steps=_dryRunSteps(combine),
         books=list(books),
         combine=combine,
@@ -203,14 +230,48 @@ def dryRunCombine(infolder):
     #Folder-level preview of recurse-combine without invoking the ffmpeg merge. Each
     #subfolder that holds audio files is treated as one book (as combineAndFindChapters does).
     books = []
+    known = _destinationKnown()
     for folder in sorted(p for p in infolder.rglob('*') if p.is_dir()):
         if len(books) >= settings.batch:
             break
         files = getAudioFiles(folder)
         if files:
-            books.append((folder.name, f"({len(files)} chapter{'s' if len(files) != 1 else ''})"))
+            detail = f"({len(files)} chapter{'s' if len(files) != 1 else ''})"
+            if known:
+                #several chapters merge into one file; same suffix rule as FileMerger.mergeBook
+                first = files[0].suffix.lower()
+                suffix = ".m4b" if settings.convert or (len(files) > 1 and first in ALWAYS_TRANSCODE_TYPES) else first
+                detail += " " + _plannedDestination(folder, suffix, source=folder.name)
+            books.append((folder.name, detail))
+    claimedPaths.clear()
     _reportDryRunPlan(books, combine=True,
                       emptyNote="no subfolders with audio files found to combine")
+
+
+def _destination(file, md, suffix, source=None):
+    #Where a book lands, unique among the files already there and the books already placed this run.
+    #The one place the --rename template meets the file system, shared by the real run and the dry run
+    #so a preview cannot drift from what happens. source overrides {filename} (default: derived from file).
+    folders, stem, md.renameMissing = Naming.resolve(Naming.effectiveTemplate(settings), md, source or _sourceName(file))
+    folder = Path(settings.output).joinpath(*folders)
+    return getUniquePath(stem + suffix, folder, claim=True)
+
+
+def _placement(finalPath, md):
+    #what a finished book reports about where it went: its path under the output folder, and which
+    #template placeholders had nothing to fill them
+    try:
+        relative = Path(finalPath).relative_to(settings.output).as_posix()
+    except ValueError:
+        relative = Path(finalPath).name
+    return Reporter.Placement(relative, tuple(md.renameMissing))
+
+
+def _sourceName(file):
+    #What {filename} means for this book: its own name, or for a combined book the chapter folder
+    #it was assembled from (the merged file in the temp folder has an assembled name nobody chose)
+    original = getOriginalPath(file)
+    return original.name if original.is_dir() else original.stem
 
 
 def processFile(file, index=0, total=0):
@@ -218,8 +279,6 @@ def processFile(file, index=0, total=0):
     Reporter.bookStarted(index, total, file.name, bookId=file)
     type = Path(file).suffix.lower()
     md = Metadata()
-    md.bookPath = settings.output
-    newPath = ""
 
     try:
         track = mutagen.File(file, easy=True)
@@ -251,43 +310,30 @@ def processFile(file, index=0, total=0):
             # Book was skipped or failed during metadata fetch
             return
 
-        #TODO (rename) set md.bookPath according to rename
-        cleanAuthor = re.sub(r'[<>"|?’:,*\']', '', md.author)
-        cleanTitle = re.sub(r'[<>"|?’:,*\']', '', md.title)
-        md.bookPath = settings.output + f"/{cleanAuthor}/{cleanTitle}"
+    #The --rename template (or the default layout) decides where the book lands, with or without
+    #fetched metadata. The final name is settled here, in the parent, so books that map to the same
+    #name get distinct paths even while their conversions are still queued.
+    newPath = _destination(file, md, ".m4b" if settings.convert else type)
+    md.bookPath = str(newPath.parent)
+    md.fileStem = newPath.stem
 
+    log.debug(f"Making directory {md.bookPath} if not exists")
+    Path(md.bookPath).mkdir(parents = True, exist_ok = True)
 
-        log.debug(f"Making directory {md.bookPath} if not exists")
-        Path(md.bookPath).mkdir(parents = True, exist_ok = True)
-
-        if settings.create:
-            createOpf(md)
-
-        if settings.convert:
-            log.debug(f"Queueing {file.name} for conversion")
-            conversions.append(Conversion(file, type, md, duration))
-            return
-        else:
-            newPath = getUniquePath(Path(cleanTitle).with_suffix(type).name, md.bookPath)
-
-        if settings.clean and settings.move:
-            #if copying, we will only clean the copied file
-            cleanMetadata(track, md)
+    if settings.fetch and settings.create:
+        createOpf(md)
 
     if settings.convert:
+        log.debug(f"Queueing {file.name} for conversion")
         conversions.append(Conversion(file, type, md, duration))
         return
 
-    if settings.rename:
-        #TODO rename
-        #again, only apply to copy
-        pass
+    if settings.fetch and settings.clean and settings.move:
+        #if copying, we will only clean the copied file
+        cleanMetadata(track, md)
 
-    if newPath == "":
-        newPath = getUniquePath(file.name, md.bookPath)
     if settings.move:
         Reporter.bookStep(Reporter.STEP_MOVE, file.name, md.bookPath)
-        # TODO (rename) temporarily use title while working on rename
         shutil.move(str(file), str(newPath))  #Path.rename fails when input and output are on different drives
     else:
         Reporter.bookStep(Reporter.STEP_COPY, file.name, md.bookPath)
@@ -296,7 +342,7 @@ def processFile(file, index=0, total=0):
         if settings.fetch and settings.clean:
             cleanMetadata(mutagen.File(newPath, easy=True), md)
 
-    Reporter.bookFinished(Reporter.STATUS_OK, file.name)
+    Reporter.bookFinished(Reporter.STATUS_OK, file.name, placement=_placement(newPath, md))
 
 
 def recursivelyCombineBatch():
@@ -348,7 +394,7 @@ def singleLevelBatch(infolder = None):
     files = getAudioFiles(infolder, settings.batch)
 
     if settings.dryRun:
-        _reportDryRunPlan([(f.name, None) for f in files])
+        _reportDryRunPlan(_planBooks(files))
         return
 
     Reporter.phaseStarted("Processing books", len(files))
@@ -361,7 +407,7 @@ def recursivelyFetchBatch():    #Since the only difference is passing true to ge
     files = getAudioFiles(infolder, settings.batch, True)
 
     if settings.dryRun:
-        _reportDryRunPlan([(f.name, None) for f in files])
+        _reportDryRunPlan(_planBooks(files))
         return
 
     Reporter.phaseStarted("Processing complete books in all subfolders", len(files))

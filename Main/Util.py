@@ -19,6 +19,7 @@ import re
 import json
 from BookStatus import skipBook, failBook
 import Reporter
+import Naming
 
 log = logging.getLogger(__name__)
 settings = None
@@ -44,7 +45,9 @@ class Metadata:
         self.series = ""
         self.seriesMulti = []
         self.volumeNumber = ""
-        self.bookPath = ""
+        self.bookPath = ""   #folder the book is written to, resolved from the --rename template
+        self.fileStem = ""   #filename (no extension) chosen by the template; conversion workers read it
+        self.renameMissing = []  #template placeholders that had no value for this book, so were left out of its name
 
 class Conversion:
     #instances are pickled to ProcessPoolExecutor workers, so hold only simple values (no mutagen objects)
@@ -740,16 +743,11 @@ def convertToM4B(file, type, md, settings, duration=-1): #This is run parallel t
     label = file.name
     Reporter.bookStep(Reporter.STEP_CONVERT, label)
 
-    #apparently ffmpeg can't process special characters on input, but has no problem outputting them? So setting newPath with specials here works just fine.
-    if md.title:
-        # newPath = Path(md.bookPath + "/" + md.title + ".mp4")   #TODO (rename) temp change to title while working on rename
-        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', md.title) + ".mp4")   #TODO (rename) temp change to title while working on rename
-    else:
-        # newPath = Path(md.bookPath + "/" + file.stem + ".mp4")   #TODO (rename) temp change to title while working on rename
-        newPath = Path(md.bookPath + "/" + re.sub(r'[<>"|?’:,*\']', '', file.stem) + ".mp4")   #TODO (rename) temp change to title while working on rename
-
-    tempPath = newPath
-    newPath = getUniquePath(newPath.with_suffix(".m4b").name, newPath.parent)
+    #the name comes from the --rename template (see Naming.resolve), chosen in the parent so concurrent
+    #workers can't be handed the same one
+    stem = md.fileStem or Naming.sanitizeName(file.stem)
+    newPath = getUniquePath(stem + ".m4b", md.bookPath)
+    tempPath = newPath.with_suffix(".mp4")  #ffmpeg picks the container from the extension; renamed to .m4b when done
 
     if settings.move:
         file = sanitizeFile(file)
@@ -1034,15 +1032,22 @@ def createOpf(md):
     opfPath.write_text(buildOpf(md), encoding="utf-8")
 
 
-def getUniquePath(fileName, outpath):
+#Destinations handed out this run but not yet on disk (queued conversions), so two books that a
+#template maps to the same name get distinct paths. Cleared when a run starts.
+claimedPaths = set()
+
+
+def getUniquePath(fileName, outpath, claim=False):
+    #claim=True reserves the result for this run; only the parent process, which sees every book, should claim
     counter = 1
-    #TODO (rename) temp change while working on rename
     type = Path(fileName).suffix
     currPath = Path(outpath) / fileName
-    while os.path.exists(currPath):
+    while os.path.exists(currPath) or currPath in claimedPaths:
         currPath = Path(outpath) / Path(str(Path(fileName).stem) + " - " + str(counter) + type)
         counter += 1
 
+    if claim:
+        claimedPaths.add(currPath)
     return currPath
 
 
@@ -1069,7 +1074,7 @@ def sanitizeFile(file):
     for og, new in subs.items():
         name = name.replace(og, new)
 
-    name = re.sub(r'[<>"|?’:,*\']', '', name)
+    name = Naming.ILLEGAL_CHARS.sub('', name)
     # name = re.sub(r'[^\x00-\x7F]+', '', name) #non-ASCII characters, in case they end up being trouble
 
     newParent = re.sub(r'[<>"|?’,*\']', '', parent) #since this is a dir path, no colons allowed

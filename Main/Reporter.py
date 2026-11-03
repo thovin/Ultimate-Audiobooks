@@ -93,11 +93,18 @@ class StepProgress(NamedTuple):
     bookId: str
 
 
+class Placement(NamedTuple):
+    #Where a finished book ended up, as far as the --rename template is concerned
+    path: str                 #relative to the output folder, e.g. "Andy Weir/Project Hail Mary.m4b"
+    missing: tuple            #template placeholders with no value for this book, left out of the name
+
+
 class BookFinished(NamedTuple):
     status: str               #one of the STATUS_* constants
     label: str
     reason: Optional[str]
     bookId: str
+    placement: Optional[Placement] = None
 
 
 class BookNote(NamedTuple):
@@ -121,7 +128,8 @@ class DryRunPlan(NamedTuple):
     output: str
     verb: str          #"move" or "copy"
     modeNote: str      #what happens to the originals
-    perBookDest: bool  #True when fetch decides the per-book Author/Title subfolder
+    layout: str        #the effective naming template, e.g. "{author}/{title}/{title}"
+    layoutExample: str #that template resolved against a sample book
     steps: list        #per-book pipeline phrases, in order
     books: list        #(label, detail-or-None) pairs
     combine: bool      #chapter folders being assembled rather than files processed
@@ -229,8 +237,8 @@ def stepProgress(step, label, done, total=-1, bookId=None):
     _emit(StepProgress(step, label, done, total, str(bookId) if bookId else _currentBookId))
 
 
-def bookFinished(status, label, reason=None, bookId=None):
-    _emit(BookFinished(status, label, reason, str(bookId) if bookId else _currentBookId))
+def bookFinished(status, label, reason=None, bookId=None, placement=None):
+    _emit(BookFinished(status, label, reason, str(bookId) if bookId else _currentBookId, placement))
 
 
 def bookNote(text, label="", bookId=None):
@@ -272,9 +280,10 @@ class QueueReporter(Reporter):
 def dryRunPlanText(plan):
     #Text form of the plan for the terminal: the shared pipeline printed once, then a numbered
     #per-book list.
-    dest = plan.output + ("  (per-book Author/Title depends on fetch)" if plan.perBookDest else "")
     lines = ["[DRY RUN] Planned run — nothing will be written",
-             f"  Output:    {dest}",
+             f"  Output:    {plan.output}",
+             f"  Layout:    {plan.layout}",
+             f"             e.g. {plan.layoutExample}",
              f"  Mode:      {plan.verb} ({plan.modeNote})",
              f"  Each book: {' → '.join(plan.steps)}",
              ""]
@@ -381,6 +390,10 @@ class ConsoleReporter(Reporter):
             log.error(f"  Failed: {event.label}{reason}")
         elif event.status == STATUS_SKIPPED:
             log.warning(f"  Skipped: {event.label}{reason}")
+        elif event.placement:
+            log.info(f"  → {event.placement.path}")
+            if event.placement.missing:
+                log.warning("  Not found, left out of the name: " + ", ".join("{" + m + "}" for m in event.placement.missing))
 
     def _onBookNote(self, event):
         self._clearProgress()

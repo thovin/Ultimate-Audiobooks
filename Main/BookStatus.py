@@ -32,6 +32,11 @@ def setOriginalPath(currentPath, originalPath):
     original = Path(originalPath).resolve()
     _originalPaths[current] = original
 
+def getOriginalPath(item):
+    """The path an item had before it was moved to a temp folder, or the item itself if it was never moved."""
+    item = Path(item)
+    return _originalPaths.get(item.resolve(), item)
+
 def _getRelativePath(item):
     """
     Get the relative path from the master input directory to the item.

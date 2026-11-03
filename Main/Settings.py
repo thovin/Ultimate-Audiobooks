@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import os
 
+import Naming
 import Reporter
 
 log = logging.getLogger(__name__)
@@ -39,10 +40,13 @@ def buildParser():
     savedSettings.add_argument("-L", "--load", action = "store_true")  #load saved settings. Exclusive with --default
     parser.add_argument("-LL", "--logLevel", type=str.upper, default = "INFO", choices = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help = "Set logging level") #log level
     parser.add_argument("-M", "--move", action = "store_true") #move files to output (copies by default)
-    parser.add_argument("-DR", "--dryRun", action = "store_true") #list what would be done without copying, moving, converting, or tagging anything (fetch skipped)
+    parser.add_argument("-DR", "--dryRun", action = "store_true") #list what would be done, including where each book would land when that can be known without fetching, without copying, moving, converting, or tagging anything (fetch skipped)
     parser.add_argument("-O", "--output", default = None) #output folder. Will default to a named sub of input, set in setter method
     parser.add_argument("-Q", "--quick", action = "store_true") #skip confirmation of settings
-    parser.add_argument("-RN", "--rename", default = None) #rename files
+    parser.add_argument("-RN", "--rename", default = None, metavar = "TEMPLATE",
+                        help = "Name and place each book with a template, relative to the output folder. '/' separates folders, "
+                               "the last part is the filename. Placeholders: " + " ".join("{" + p + "}" for p in Naming.PLACEHOLDERS) +
+                               ". Example: \"{author}/{series}/{series} {volume:02} - {title}\"") #layout of the output
     recursiveModes = parser.add_mutually_exclusive_group()
     recursiveModes.add_argument("-RF", "--recurseFetch", action = "store_true") #recursively fetch audio files, presumed to be entire books. Recursives are exclusive.
     recursiveModes.add_argument("-RC", "--recurseCombine", action = "store_true") #recursively fetch audio files, combining files sharing a dir. Recursives are exclusive.
@@ -109,6 +113,12 @@ class Settings:
         if self.recurseCombine and not self.move:
             raise ConfigError("Recurse combine currently requires move mode: "
                               "copy mode would strand original files in the temp folder.")
+
+        if self.rename:
+            try:
+                Naming.validateTemplate(self.rename)
+            except ValueError as e:
+                raise ConfigError(str(e)) from None
 
         #Only FFmpeg reads from the input path, and it can choke on these before any sanitizing happens
         if self.convert or self.recurseCombine:

@@ -190,7 +190,7 @@ def mergeBook(folderPath, outPath = False, move = False):
     newFilepath = getUniquePath(newName, outPath if outPath else folderPath)
 
     log.debug(str(len(files)) + " chapters detected")
-    #TODO (rename) when --rename is working, apply here
+    #the merged file is only an intermediate in the temp folder; --rename is applied when Processing places it in the output
     #TODO improve processing for multiple disks not in metadata
 
     for i in range(len(files)):
@@ -361,4 +361,4 @@ def combineAndFindChapters(startPath, outPath, counter, root):
     If -M, nuke emptied folder. Ensure there are no unchecked subfolders first!
     Either way, combined files should be put into outpath
 
-    '''
+    '''

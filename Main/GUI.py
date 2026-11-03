@@ -18,6 +18,7 @@ import Reporter
 import LogSetup
 import BookStatus
 import Util
+import Naming
 
 log = logging.getLogger(__name__)
 
@@ -227,6 +228,9 @@ class BookRow(ctk.CTkFrame):
         #created on the first BookNote; most books never get one
         self.noteLabel = None
 
+        #created when a finished book had template placeholders with no value
+        self.missingLabel = None
+
         #the glyph and count columns are fixed, so the text columns get whatever is left
         self.wrapLabels = [self.titleLabel, self.detailLabel]
         wrapToWidth(self, self.wrapLabels, 120)
@@ -259,7 +263,7 @@ class BookRow(ctk.CTkFrame):
         self.glyphLabel.configure(text=Reporter.stepGlyph(step))
         self._setDetail(f"{Reporter.stepLabel(step)}  {int(self.fraction * 100)}%", "active")
 
-    def finish(self, status, reason=None):
+    def finish(self, status, reason=None, placement=None):
         self.finished = True
         self.status = status
         self.fraction = 1.0
@@ -269,8 +273,23 @@ class BookRow(ctk.CTkFrame):
             #a finished row has nothing left to measure, and dropping the bar keeps the list compact
             self.progressBar.destroy()
             self.progressBar = None
+        if placement:
+            word += f" → {placement.path}"
         self._setDetail(word + (f" — {reason}" if reason else ""), colorKey)
         self.titleLabel.configure(text_color=ROW_COLORS["normal"])
+        if placement and placement.missing:
+            self._showMissing(placement.missing)
+
+    def _showMissing(self, missing):
+        #what the rename template asked for but this book had no value for, so it is not in the name
+        text = "Not found, left out of the name: " + ", ".join("{" + m + "}" for m in missing)
+        if self.missingLabel is None:
+            self.missingLabel = ctk.CTkLabel(self, text=text, anchor="w", justify="left",
+                                             font=ctk.CTkFont(size=12), text_color=ROW_COLORS["error"])
+            self.missingLabel.grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 12), pady=(0, 8))
+            self.wrapLabels.append(self.missingLabel)
+        else:
+            self.missingLabel.configure(text=text)
 
     def setPlanned(self, detail=None):
         #dry run: the same row, describing what would happen rather than what is happening
@@ -530,7 +549,7 @@ class ActivityView(ctk.CTkScrollableFrame):
         row = self.row(event.bookId, event.label)
         if not row.finished:
             self.finishedCount += 1
-        row.finish(event.status, event.reason)
+        row.finish(event.status, event.reason, event.placement)
 
     def bookNote(self, event):
         self.row(event.bookId, event.label).addNote(event.text)
@@ -552,8 +571,8 @@ class ActivityView(ctk.CTkScrollableFrame):
         #autoscroll would push the summary card off the top before anyone saw it
         self._follow = False
         lines = [(f"📂  Output: {plan.output}", "normal")]
-        if plan.perBookDest:
-            lines.append(("Each book lands in Author/Title from the fetched metadata", "muted"))
+        lines.append((f"🗂️  Layout: {plan.layout}", "normal"))
+        lines.append((f"e.g. {plan.layoutExample}", "muted"))
         lines.append((f"{'🚚' if plan.verb == 'move' else '📋'}  Mode: {plan.verb} — {plan.modeNote}", "normal"))
         lines.append((f"🔧  Each book: {' → '.join(plan.steps)}", "normal"))
         if not plan.books:
@@ -789,6 +808,37 @@ class App(ctk.CTk):
         widget.grid(row=0, column=1, sticky="e")
         return widget
 
+    def _defaultRenameTemplate(self):
+        #the layout a run uses when no template is given, which depends on whether it fetches
+        return Naming.DEFAULT_TEMPLATE if self.fetchMenu.get() == "Off" else Naming.DEFAULT_TEMPLATE_FETCH
+
+    def _setRenameTemplate(self, template):
+        self.renameEntry.delete(0, "end")
+        self.renameEntry.insert(0, template)
+        self._updateRenamePreview()
+
+    def _resetRename(self):
+        self._renameDefault = self._defaultRenameTemplate()
+        self._setRenameTemplate(self._renameDefault)
+
+    def _renameIsDefault(self):
+        template = self.renameEntry.get().strip()
+        return template in ("", self._defaultRenameTemplate())
+
+    def _onFetchChanged(self, choice):
+        #follow the default as fetch is toggled, but never overwrite a template the user has edited
+        if self.renameEntry.get().strip() == self._renameDefault:
+            self._resetRename()
+        else:
+            self._renameDefault = self._defaultRenameTemplate()
+
+    def _updateRenamePreview(self):
+        template = self.renameEntry.get().strip()
+        try:
+            self.renamePreview.configure(text="→ " + Naming.preview(template), text_color="gray55")
+        except ValueError as e:
+            self.renamePreview.configure(text=str(e), text_color=ROW_COLORS["error"])
+
     def _buildForm(self, form):
         font13 = ctk.CTkFont(size=13)
 
@@ -828,7 +878,8 @@ class App(ctk.CTk):
 
         self.fetchMenu = self._labeledRow(card, 1, "Fetch from web:",
                                           lambda p: ctk.CTkOptionMenu(p, values=FETCH_OPTIONS, width=170,
-                                                                      height=32, font=font13))
+                                                                      height=32, font=font13,
+                                                                      command=self._onFetchChanged))
         self.fetchInputMenu = self._labeledRow(card, 2, "Fetch input:",
                                                lambda p: ctk.CTkOptionMenu(p, values=FETCH_INPUT_MODES, width=170,
                                                                            height=32, font=font13,
@@ -847,8 +898,38 @@ class App(ctk.CTk):
                                                                        height=32, font=font13),
                                            lastInCard=True)
 
+        # --- Naming ---
+        card = self._sectionCard(form, 3, "NAMING")
+        renameRow = ctk.CTkFrame(card, fg_color="transparent")
+        renameRow.grid(row=1, column=0, sticky="ew", padx=PAD, pady=(0, 6))
+        renameRow.grid_columnconfigure(0, weight=1)
+        self.renameEntry = ctk.CTkEntry(renameRow, height=32, font=font13)
+        self.renameEntry.grid(row=0, column=0, sticky="ew")
+        self.renameEntry.bind("<KeyRelease>", lambda e: self._updateRenamePreview())
+        ctk.CTkButton(renameRow, text="Reset", width=76, height=32, command=self._resetRename,
+                      fg_color="transparent", border_width=1, text_color=OUTLINE_TEXT).grid(row=0, column=1, padx=(8, 0))
+
+        self.renamePreview = ctk.CTkLabel(card, text="", font=ctk.CTkFont(size=12), anchor="w", justify="left")
+        self.renamePreview.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(0, 6))
+
+        renameHelp = ctk.CTkLabel(card, text="'/' separates folders; the last part names the file.\nPlaceholders: "
+                                  + " ".join("{" + p + "}" for p in Naming.PLACEHOLDERS),
+                                  font=ctk.CTkFont(size=11), text_color="gray55", anchor="w", justify="left")
+        renameHelp.grid(row=3, column=0, sticky="ew", padx=PAD, pady=(0, 12))
+
+        #wrap the text to whatever width the card has, so it fills the space at any window or UI scale
+        def wrapToCard(event):
+            #event.width is in scaled pixels, but a label scales its wraplength itself
+            wrap = max((event.width - 2 * PAD) / card._get_widget_scaling() - 8, 100)
+            self.renamePreview.configure(wraplength=wrap)
+            renameHelp.configure(wraplength=wrap)
+        card.bind("<Configure>", wrapToCard)
+
+        self._renameDefault = ""
+        self._resetRename()
+
         # --- Conversion ---
-        card = self._sectionCard(form, 3, "CONVERSION")
+        card = self._sectionCard(form, 4, "CONVERSION")
         self.convertSwitch = ctk.CTkSwitch(card, text="Convert to .m4b (requires ffmpeg)", font=font13)
         self.convertSwitch.grid(row=1, column=0, sticky="w", padx=PAD, pady=(0, 8))
 
@@ -858,14 +939,14 @@ class App(ctk.CTk):
                                              lastInCard=True)
 
         # --- Execution ---
-        card = self._sectionCard(form, 4, "EXECUTION")
+        card = self._sectionCard(form, 5, "EXECUTION")
         self.batchEntry = self._labeledRow(card, 1, "Batch size:",
                                            lambda p: ctk.CTkEntry(p, width=170, height=32, font=font13),
                                            lastInCard=True)
         self.batchEntry.insert(0, "10")
 
         # --- Interface ---
-        card = self._sectionCard(form, 5, "INTERFACE")
+        card = self._sectionCard(form, 6, "INTERFACE")
 
         self.appearanceMenu = self._labeledRow(card, 1, "Appearance:",
                                                lambda p: ctk.CTkOptionMenu(p, values=["Dark", "Light", "System"],
@@ -1343,6 +1424,8 @@ class App(ctk.CTk):
             "clean": bool(self.cleanSwitch.get()),
             "create": None if create == "Off" else create.upper(),
             "convert": bool(self.convertSwitch.get()),
+            #the untouched default is saved as "none" so it keeps following the fetch setting
+            "rename": None if self._renameIsDefault() else self.renameEntry.get().strip(),
             "batch": self.batchEntry.get().strip(),
             "workers": -1 if workers.lower() in ("", "auto") else workers,
             #no logLevel: that is the console's verbosity, and the GUI has no console. The drawer's
@@ -1396,6 +1479,10 @@ class App(ctk.CTk):
         fetch = saved.get("fetch")
         self.fetchMenu.set(fetch.capitalize() if fetch in ("audible", "goodreads", "both") else "Off")
         self.createMenu.set("OPF" if saved.get("create") else "Off")
+
+        #after fetch is set, since the default layout depends on it
+        self._renameDefault = self._defaultRenameTemplate()
+        self._setRenameTemplate(saved.get("rename") or self._renameDefault)
         log.info("Settings loaded from " + str(Settings.SETTINGS_FILE))
 
     # ---------- running ----------

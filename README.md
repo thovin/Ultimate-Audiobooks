@@ -4,7 +4,7 @@ This WIP program is intended to simplify processing audiobook files: fetch metad
 
 ⚠️ **Warning:** Always back up your audiobook files before use. The tool defaults to copying files instead of moving them, but data safety is not guaranteed.
 
-If **fetch** is passed, books are organized into `<output>/<author>/<title>/`. Otherwise they go directly into `<output>`. This will be customizable in the future (`--rename`).
+If **fetch** is passed, books are organized into `<output>/<author>/<title>/`. Otherwise they go directly into `<output>`. Use `--rename` to choose your own layout (see [Naming templates](#naming-templates)).
 
 ---
 
@@ -78,12 +78,14 @@ Note: Combine and Preserve processing modes can be used on libraries of mixed wh
 ### Execution Control
 - `-B, --batch <int>`
   Max number of books per run. Default = 10.
+- `-DR, --dryRun`
+  Show what would happen and write nothing. Never fetches, so it never waits on you. Lists where each book would land when that can be worked out without metadata (no `--fetch`, or a template that only uses `{filename}`); otherwise shows the layout with a sample book.
 - `-Q, --quick`
   Skip settings confirmation (for scripting).
 - `-LL, --logLevel [DEBUG|INFO|WARNING|ERROR|CRITICAL]`
   Set logging verbosity. Default = INFO.
-- `-RN, --rename`
-  Rename files using a template (**not yet implemented**).
+- `-RN, --rename <template>`
+  Choose where each book goes and what it is called. See [Naming templates](#naming-templates).
 
 ### Saved Settings
 Settings are stored in `settings.json` next to `Main.py`, so they work no matter which directory you launch from.
@@ -145,3 +147,25 @@ This will set the **batch** size to be virtually infinite, recursively combine a
 This will **load** the previously saved settings, overriding **input**, **move**, and **quick** with the values given here. Everything else (batch size, output, recursive mode, etc.) comes from the save file.
 
 `Main.py --load --quick --move --input c:\some\input\folder`
+
+---
+
+## Naming templates
+
+`--rename` takes a path template, relative to the output folder. `/` separates folder levels and the last part is the filename (the extension is added for you: the original one, or `.m4b` when converting). Every part is free text, so one level can mix several pieces of data.
+
+```bash
+python Main.py -I books --fetch audible --rename "{author}/{series}/{series} {volume:02} - {title} ({year})"
+# -> Barnaby Quillfeather/The Honk Chronicles/The Honk Chronicles 01 - How to Befriend a Goose (2021).m4b
+```
+
+**Placeholders:** `{author}` `{authors}` `{title}` `{subtitle}` `{series}` `{volume}` `{narrator}` `{narrators}` `{publisher}` `{year}` `{genre}` `{asin}` `{isbn}` `{filename}`
+
+- `{authors}` and `{narrators}` list everyone, joined with ` & `; `{author}`, `{narrator}` and `{genre}` are the first.
+- `{filename}` is the original file name without its extension (for a combined book, the chapter folder's name).
+- `{volume:02}` pads numbers (`1` becomes `01`, `1.5` becomes `01.5`).
+- Without `--fetch` there is no metadata: `{title}` falls back to the file name and the rest are empty.
+- Empty values are dropped: a level whose placeholders are all empty disappears, and leftovers like `" - "` or `()` are tidied, so `{series}/{title}` gives plain `{title}` for a standalone book.
+- Characters that are unsafe in file names (including commas) are removed from the data, and `/` inside a title can never create a folder.
+- If two books end up with the same name, the later ones get ` - 1`, ` - 2`, and so on.
+- Without `--rename`, books keep today's layout: `{author}/{title}/{title}` with `--fetch`, `{filename}` without.
